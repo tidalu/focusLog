@@ -2,6 +2,8 @@ services:
   - type: web
     name: focuslog-backend
     runtime: docker
+    plan: free
+    region: frankfurt
     dockerfilePath: ./apps/backend/Dockerfile
     dockerContext: .
     healthCheckPath: /health/ready
@@ -21,5 +23,7 @@ services:
           property: connectionString
 databases:
   - name: focuslog-postgres
+    plan: free
+    region: frankfurt
     databaseName: focuslog
     user: focuslog
