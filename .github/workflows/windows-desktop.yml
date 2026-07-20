@@ -18,6 +18,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @focuslog/shared-utils build
       - run: pnpm --filter @focuslog/desktop test
       - run: pnpm --filter @focuslog/desktop package:win
       - name: Clean-install smoke test

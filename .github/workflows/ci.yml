@@ -95,7 +95,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @focuslog/backend prisma:generate
       - run: pnpm --filter @focuslog/backend prisma:migrate:deploy
-      - run: pnpm --filter @focuslog/backend build
+      - run: pnpm --filter @focuslog/backend... build
       - name: Start real synchronization backend
         run: |
           nohup pnpm --filter @focuslog/backend start > /tmp/focuslog-backend.log 2>&1 &
