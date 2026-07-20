@@ -107,8 +107,6 @@ jobs:
           done
           cat /tmp/focuslog-backend.log
           exit 1
-      - run: flutter create --platforms=android .
-        working-directory: apps/mobile
       - run: flutter pub get
         working-directory: apps/mobile
       - run: dart run build_runner build --delete-conflicting-outputs
@@ -117,6 +115,25 @@ jobs:
         working-directory: apps/mobile
       - run: flutter test --dart-define=FOCUSLOG_INTEGRATION_API_URL=http://127.0.0.1:3000
         working-directory: apps/mobile
+      - name: Configure Android release signing
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > focuslog-release.jks
+          {
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'storeFile=../focuslog-release.jks\n'
+          } > key.properties
       - run: >-
           flutter build apk --release
           --dart-define=FOCUSLOG_API_URL=https://focuslog-backend.onrender.com
