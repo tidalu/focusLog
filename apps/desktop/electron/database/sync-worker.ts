@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 
 import type { DesktopDatabase } from './database.js';
+import { readOwnerSettings, writeOwnerSettings } from '../reminders/preferences.js';
 
 interface PushResult {
   operationId: string;
@@ -275,6 +276,29 @@ function applyReminderSchedule(
         session.startedAt,
         now.toISOString()
       );
+  else
+    database
+      .prepare(
+        `UPDATE focus_modes
+            SET interval_minutes = ?, policy_json = ?, version = ?, updated_at = ?
+          WHERE id = ?`
+      )
+      .run(
+        mode.intervalMinutes,
+        JSON.stringify(mode.policy),
+        mode.version,
+        now.toISOString(),
+        modeId
+      );
+  writeOwnerSettings(
+    database,
+    ownerId,
+    {
+      ...readOwnerSettings(database, ownerId),
+      reminderIntervalMinutes: Number(mode.intervalMinutes)
+    },
+    now
+  );
   database
     .prepare(
       "INSERT OR IGNORE INTO focus_sessions (id, owner_id, focus_mode_id, name, status, schedule_policy_json, timezone_id, started_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)"

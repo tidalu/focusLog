@@ -7,6 +7,8 @@ abstract class ReminderScheduler {
   Future<String?> launchedOccurrence();
   Future<void> schedule(String occurrenceId, DateTime dueAt);
   Future<void> cancel(String occurrenceId);
+  Future<void> beginPresentation(String occurrenceId);
+  Future<void> endPresentation(String occurrenceId);
   Future<void> recoverAfterStartup();
   Future<void> recoverAfterWake();
 }

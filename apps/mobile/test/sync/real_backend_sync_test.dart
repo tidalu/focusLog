@@ -13,8 +13,10 @@ import 'package:focuslog_mobile/sync/sync_worker.dart';
 
 String _pem(String label, List<int> der) {
   final encoded = base64Encode(der);
-  final lines =
-      RegExp('.{1,64}').allMatches(encoded).map((match) => match.group(0)).join('\n');
+  final lines = RegExp('.{1,64}')
+      .allMatches(encoded)
+      .map((match) => match.group(0))
+      .join('\n');
   return '-----BEGIN $label-----\n$lines\n-----END $label-----\n';
 }
 
@@ -65,8 +67,8 @@ void main() {
       final database = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(database.close);
       final repository = FocusLogRepository(database, identity);
-      final checkInId =
-          await repository.createCheckIn('Android Drift check-in sent to the real backend');
+      final checkInId = await repository
+          .createCheckIn('Android Drift check-in sent to the real backend');
       final start = DateTime.now().toUtc().add(const Duration(seconds: 1));
 
       final unavailable = SyncWorker(
@@ -91,19 +93,15 @@ void main() {
       expect((await recovered.synchronize()).status, 'synced');
       recovered.dispose();
 
-      final outbox = await database
-          .customSelect(
-            'SELECT acknowledged_at FROM outbox_operations WHERE entity_id = ?',
-            variables: [Variable.withString(checkInId)],
-          )
-          .getSingle();
+      final outbox = await database.customSelect(
+        'SELECT acknowledged_at FROM outbox_operations WHERE entity_id = ?',
+        variables: [Variable.withString(checkInId)],
+      ).getSingle();
       expect(outbox.readNullable<DateTime>('acknowledged_at'), isNotNull);
-      final journal = await database
-          .customSelect(
-            'SELECT operation_id FROM sync_operations WHERE entity_id = ?',
-            variables: [Variable.withString(checkInId)],
-          )
-          .getSingle();
+      final journal = await database.customSelect(
+        'SELECT operation_id FROM sync_operations WHERE entity_id = ?',
+        variables: [Variable.withString(checkInId)],
+      ).getSingle();
       expect(journal.read<String>('operation_id'), hasLength(26));
 
       await repository.startFocusSession(intervalMinutes: 1);
@@ -130,12 +128,17 @@ void main() {
       expect((await reminderWorker.synchronize()).status, 'synced');
       reminderWorker.dispose();
       expect(
-        (await database.customSelect(
-          "SELECT COUNT(*) AS count FROM outbox_operations WHERE kind = 'reminder.complete' AND acknowledged_at IS NOT NULL",
-        ).getSingle()).read<int>('count'),
+        (await database
+                .customSelect(
+                  "SELECT COUNT(*) AS count FROM outbox_operations WHERE kind = 'reminder.complete' AND acknowledged_at IS NOT NULL",
+                )
+                .getSingle())
+            .read<int>('count'),
         1,
       );
     },
-    skip: address.isEmpty ? 'FOCUSLOG_INTEGRATION_API_URL is not configured.' : false,
+    skip: address.isEmpty
+        ? 'FOCUSLOG_INTEGRATION_API_URL is not configured.'
+        : false,
   );
 }

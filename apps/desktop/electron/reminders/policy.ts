@@ -9,7 +9,7 @@ export interface ReminderPolicy {
 
 export const defaultReminderPolicy: ReminderPolicy = {
   cadence: 'FIXED_FROM_SESSION_START',
-  intervalMinutes: 30,
+  intervalMinutes: 15,
   responseWindowMinutes: 60,
   snoozeMinutes: [5, 10, 15],
   maxSnoozes: 3,
@@ -48,8 +48,8 @@ export function parseReminderPolicy(value: unknown): ReminderPolicy {
     intervalMinutes: boundedInteger(
       candidate.intervalMinutes,
       defaultReminderPolicy.intervalMinutes,
-      1,
-      1440
+      5,
+      240
     ),
     responseWindowMinutes: boundedInteger(
       candidate.responseWindowMinutes,

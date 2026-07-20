@@ -26,22 +26,29 @@ void main() {
 
     await repository.recoverOverdueReminders(reason: 'process-start');
     final restartedRepository = FocusLogRepository(database, identity());
-    await restartedRepository.recoverOverdueReminders(reason: 'process-restart');
+    await restartedRepository.recoverOverdueReminders(
+        reason: 'process-restart');
 
     expect(
-      (await database.customSelect('SELECT state FROM reminder_occurrences').getSingle())
+      (await database
+              .customSelect('SELECT state FROM reminder_occurrences')
+              .getSingle())
           .read<String>('state'),
       'DUE',
     );
     expect(
-      (await database.customSelect(
-        "SELECT COUNT(*) AS count FROM reminder_transitions WHERE to_state = 'DUE'",
-      ).getSingle()).read<int>('count'),
+      (await database
+              .customSelect(
+                "SELECT COUNT(*) AS count FROM reminder_transitions WHERE to_state = 'DUE'",
+              )
+              .getSingle())
+          .read<int>('count'),
       1,
     );
   });
 
-  test('offline completion enforces 20 characters and queues reminder.complete', () async {
+  test('offline completion enforces 20 characters and queues reminder.complete',
+      () async {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(database.close);
     final repository = FocusLogRepository(database, identity());
@@ -63,20 +70,28 @@ void main() {
       'Android offline reminder completion text',
     );
     expect(
-      (await database.customSelect(
-        "SELECT COUNT(*) AS count FROM outbox_operations WHERE kind = 'reminder.complete' AND acknowledged_at IS NULL",
-      ).getSingle()).read<int>('count'),
+      (await database
+              .customSelect(
+                "SELECT COUNT(*) AS count FROM outbox_operations WHERE kind = 'reminder.complete' AND acknowledged_at IS NULL",
+              )
+              .getSingle())
+          .read<int>('count'),
       1,
     );
     expect(
-      (await database.customSelect(
-        'SELECT COUNT(*) AS count FROM check_ins',
-      ).getSingle()).read<int>('count'),
+      (await database
+              .customSelect(
+                'SELECT COUNT(*) AS count FROM check_ins',
+              )
+              .getSingle())
+          .read<int>('count'),
       1,
     );
   });
 
-  test('expired scheduled reminders are marked missed and recurring scheduling recovers', () async {
+  test(
+      'expired scheduled reminders are marked missed and recurring scheduling recovers',
+      () async {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(database.close);
     final repository = FocusLogRepository(database, identity());
@@ -88,9 +103,12 @@ void main() {
     );
     await repository.recoverOverdueReminders(reason: 'reboot');
     expect(
-      (await database.customSelect(
-        "SELECT COUNT(*) AS count FROM reminder_occurrences WHERE state = 'MISSED'",
-      ).getSingle()).read<int>('count'),
+      (await database
+              .customSelect(
+                "SELECT COUNT(*) AS count FROM reminder_occurrences WHERE state = 'MISSED'",
+              )
+              .getSingle())
+          .read<int>('count'),
       1,
     );
     expect((await repository.scheduledReminders()).length, 1);

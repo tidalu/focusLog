@@ -7,7 +7,7 @@ import '../identity/device_identity.dart';
 
 const defaultReminderPolicy = <String, Object>{
   'cadence': 'FIXED_FROM_SESSION_START',
-  'intervalMinutes': 30,
+  'intervalMinutes': 15,
   'responseWindowMinutes': 60,
   'snoozeMinutes': <int>[5, 10, 15],
   'maxSnoozes': 3,
@@ -72,10 +72,11 @@ String _localDay(DateTime instant, String timezoneId) {
 }
 
 class FocusSessionSummary {
-  const FocusSessionSummary(this.id, this.name, this.startedAt);
+  const FocusSessionSummary(this.id, this.name, this.startedAt, this.status);
   final String id;
   final String name;
   final DateTime startedAt;
+  final String status;
 }
 
 class CheckInSummary {
@@ -132,6 +133,11 @@ class DailyReport {
       required this.missedIntervals,
       required this.totalTrackedMinutes,
       required this.focusScore,
+      required this.completionPercentage,
+      required this.averageResponseDelayMinutes,
+      required this.longestFocusStreak,
+      required this.mostCommonActivity,
+      required this.wordCloud,
       required this.categories,
       required this.occurrenceStates,
       required this.timeline,
@@ -146,6 +152,11 @@ class DailyReport {
   final int missedIntervals;
   final int totalTrackedMinutes;
   final int focusScore;
+  final int completionPercentage;
+  final int averageResponseDelayMinutes;
+  final int longestFocusStreak;
+  final String? mostCommonActivity;
+  final Map<String, int> wordCloud;
   final Map<String, int> categories;
   final Map<String, int> occurrenceStates;
   final List<ReportTimelineItem> timeline;
@@ -204,20 +215,42 @@ class FocusLogRepository {
     await database.customStatement(
       'INSERT OR IGNORE INTO settings '
       '(owner_id, values_json, version, created_at, updated_at) '
-      "VALUES (?, '{\"reportTimezoneId\":\"UTC\"}', ?, ?, ?)",
+      "VALUES (?, '{\"reportTimezoneId\":\"UTC\",\"reminderIntervalMinutes\":15}', ?, ?, ?)",
       [_ownerId, generateSyncId(), now, now],
     );
   }
 
-  Future<String> reportTimezoneId() async {
+  Future<Map<String, dynamic>> _settingsValues() async {
     final row = await database.customSelect(
       'SELECT values_json FROM settings WHERE owner_id = ?',
       variables: [Variable.withString(_ownerId)],
     ).getSingleOrNull();
-    if (row == null) return 'UTC';
+    if (row == null) return <String, dynamic>{};
     try {
-      final values =
-          jsonDecode(row.read<String>('values_json')) as Map<String, dynamic>;
+      final decoded = jsonDecode(row.read<String>('values_json'));
+      return decoded is Map<String, dynamic>
+          ? <String, dynamic>{...decoded}
+          : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<void> _writeSettings(Map<String, dynamic> values) async {
+    final now = DateTime.now().toUtc();
+    await database.customStatement(
+      'INSERT INTO settings '
+      '(owner_id, values_json, version, created_at, updated_at) '
+      'VALUES (?, ?, ?, ?, ?) '
+      'ON CONFLICT(owner_id) DO UPDATE SET values_json = excluded.values_json, '
+      'version = excluded.version, updated_at = excluded.updated_at',
+      [_ownerId, jsonEncode(values), generateSyncId(), now, now],
+    );
+  }
+
+  Future<String> reportTimezoneId() async {
+    try {
+      final values = await _settingsValues();
       final value = values['reportTimezoneId'] as String? ?? 'UTC';
       _reportLocation(value);
       return value;
@@ -228,29 +261,111 @@ class FocusLogRepository {
 
   Future<void> setReportTimezoneId(String timezoneId) async {
     _reportLocation(timezoneId);
-    final row = await database.customSelect(
-      'SELECT values_json FROM settings WHERE owner_id = ?',
+    final values = await _settingsValues();
+    values['reportTimezoneId'] = timezoneId;
+    await _writeSettings(values);
+  }
+
+  Future<int> reminderIntervalMinutes() async {
+    final occurrence = await database.customSelect(
+      "SELECT reminder_occurrences.policy_snapshot_json AS policy_json "
+      "FROM reminder_occurrences "
+      "JOIN focus_sessions ON focus_sessions.id = reminder_occurrences.focus_session_id "
+      "WHERE reminder_occurrences.owner_id = ? "
+      "AND focus_sessions.status IN ('ACTIVE','PAUSED') "
+      "AND reminder_occurrences.state IN ('SCHEDULED','DUE','PRESENTED','SNOOZED') "
+      "ORDER BY reminder_occurrences.scheduled_at LIMIT 1",
       variables: [Variable.withString(_ownerId)],
     ).getSingleOrNull();
-    final values = <String, dynamic>{};
-    if (row != null) {
-      try {
-        values.addAll(jsonDecode(row.read<String>('values_json'))
-            as Map<String, dynamic>);
-      } catch (_) {
-        // Replace malformed local settings without affecting user content.
-      }
+    if (occurrence != null) {
+      return _policy(occurrence.read<String>('policy_json'))['intervalMinutes']
+          as int;
     }
-    values['reportTimezoneId'] = timezoneId;
+    final configured =
+        (await _settingsValues())['reminderIntervalMinutes'] as num?;
+    return configured?.toInt().clamp(5, 240).toInt() ?? 15;
+  }
+
+  Future<int> setReminderInterval(int intervalMinutes) async {
+    if (intervalMinutes < 5 || intervalMinutes > 240) {
+      throw ArgumentError(
+          'Reminder interval must be between 5 and 240 minutes.');
+    }
     final now = DateTime.now().toUtc();
+    final values = await _settingsValues();
+    values['reminderIntervalMinutes'] = intervalMinutes;
+    await _writeSettings(values);
+    final policy = <String, Object>{
+      ...defaultReminderPolicy,
+      'intervalMinutes': intervalMinutes,
+    };
+    final policyJson = jsonEncode(policy);
+    final mode = await database.customSelect(
+      "SELECT id FROM focus_modes WHERE owner_id = ? AND name = 'Default focus' AND deleted_at IS NULL",
+      variables: [Variable.withString(_ownerId)],
+    ).getSingleOrNull();
+    if (mode != null) {
+      await database.customStatement(
+        'UPDATE focus_modes SET interval_minutes = ?, policy_json = ?, version = ?, updated_at = ? WHERE id = ?',
+        [
+          intervalMinutes,
+          policyJson,
+          generateSyncId(),
+          now,
+          mode.read<String>('id')
+        ],
+      );
+    }
+    final session = await database.customSelect(
+      "SELECT id, status FROM focus_sessions WHERE owner_id = ? AND status IN ('ACTIVE','PAUSED') ORDER BY started_at DESC LIMIT 1",
+      variables: [Variable.withString(_ownerId)],
+    ).getSingleOrNull();
+    if (session == null) return intervalMinutes;
     await database.customStatement(
-      'INSERT INTO settings '
-      '(owner_id, values_json, version, created_at, updated_at) '
-      'VALUES (?, ?, ?, ?, ?) '
-      'ON CONFLICT(owner_id) DO UPDATE SET values_json = excluded.values_json, '
-      'version = excluded.version, updated_at = excluded.updated_at',
-      [_ownerId, jsonEncode(values), generateSyncId(), now, now],
+      'UPDATE focus_sessions SET schedule_policy_json = ?, version = ?, updated_at = ? WHERE id = ?',
+      [policyJson, generateSyncId(), now, session.read<String>('id')],
     );
+    final occurrence = await database.customSelect(
+      "SELECT id, state FROM reminder_occurrences WHERE owner_id = ? AND focus_session_id = ? AND state IN ('SCHEDULED','DUE','PRESENTED','SNOOZED') ORDER BY scheduled_at LIMIT 1",
+      variables: [
+        Variable.withString(_ownerId),
+        Variable.withString(session.read<String>('id')),
+      ],
+    ).getSingleOrNull();
+    if (occurrence == null) return intervalMinutes;
+    final state = occurrence.read<String>('state');
+    if (state == 'DUE' || state == 'PRESENTED') {
+      await database.customStatement(
+        'UPDATE reminder_occurrences SET policy_snapshot_json = ?, updated_at = ? WHERE id = ?',
+        [policyJson, now, occurrence.read<String>('id')],
+      );
+      return intervalMinutes;
+    }
+    await _transitionReminder(
+      occurrence.read<String>('id'),
+      'SUPERSEDED',
+      reason: 'reminder-interval-changed',
+      occurredAt: now,
+    );
+    if (session.read<String>('status') == 'ACTIVE') {
+      final dueAt = now.add(Duration(minutes: intervalMinutes));
+      final occurrenceId = generateSyncId();
+      await database.customStatement(
+        "INSERT INTO reminder_occurrences (id, owner_id, focus_session_id, state, scheduled_at, original_scheduled_at, timezone_id, policy_snapshot_json, version, created_at, updated_at) SELECT ?, owner_id, id, 'SCHEDULED', ?, ?, timezone_id, ?, ?, ?, ? FROM focus_sessions WHERE id = ?",
+        [
+          occurrenceId,
+          dueAt,
+          dueAt,
+          policyJson,
+          generateSyncId(),
+          now,
+          now,
+          session.read<String>('id')
+        ],
+      );
+      await _queueReminderSchedule(occurrenceId, now);
+    }
+    return intervalMinutes;
   }
 
   /// A paired device adopts the single owner's identifier only before it has
@@ -309,19 +424,21 @@ class FocusLogRepository {
 
   Future<FocusSessionSummary?> activeSession() async {
     final row = await database.customSelect(
-      "SELECT id, name, started_at FROM focus_sessions WHERE owner_id = ? AND status = 'ACTIVE' ORDER BY started_at DESC LIMIT 1",
+      "SELECT id, name, started_at, status FROM focus_sessions WHERE owner_id = ? AND status IN ('ACTIVE','PAUSED') ORDER BY started_at DESC LIMIT 1",
       variables: [Variable.withString(_ownerId)],
     ).getSingleOrNull();
     if (row == null) return null;
     return FocusSessionSummary(
         row.read<String>('id'),
         row.readNullable<String>('name') ?? 'Focus session',
-        row.read<DateTime>('started_at'));
+        row.read<DateTime>('started_at'),
+        row.read<String>('status'));
   }
 
-  Future<FocusSessionSummary> startFocusSession(
-      {int intervalMinutes = 30}) async {
+  Future<FocusSessionSummary> startFocusSession({int? intervalMinutes}) async {
     await ensureIdentity();
+    final configuredInterval =
+        intervalMinutes ?? await reminderIntervalMinutes();
     final now = DateTime.now().toUtc();
     final existingMode = await database.customSelect(
       "SELECT id FROM focus_modes WHERE owner_id = ? AND name = 'Default focus'",
@@ -329,10 +446,10 @@ class FocusLogRepository {
     ).getSingleOrNull();
     final modeId = existingMode?.read<String>('id') ?? generateSyncId();
     final sessionId = generateSyncId();
-    final dueAt = now.add(Duration(minutes: intervalMinutes));
+    final dueAt = now.add(Duration(minutes: configuredInterval));
     final policy = <String, Object>{
       ...defaultReminderPolicy,
-      'intervalMinutes': intervalMinutes
+      'intervalMinutes': configuredInterval
     };
     final policyJson = jsonEncode(policy);
     final reminderId = generateSyncId();
@@ -342,7 +459,7 @@ class FocusLogRepository {
         [
           modeId,
           _ownerId,
-          intervalMinutes,
+          configuredInterval,
           policyJson,
           generateSyncId(),
           now,
@@ -378,7 +495,7 @@ class FocusLogRepository {
       );
       await _queueReminderSchedule(reminderId, now);
     });
-    return FocusSessionSummary(sessionId, 'Focus session', now);
+    return FocusSessionSummary(sessionId, 'Focus session', now, 'ACTIVE');
   }
 
   Future<ReminderSummary?> nextScheduledReminder() async {
@@ -452,15 +569,95 @@ class FocusLogRepository {
     }
   }
 
+  Future<QueryRow?> _activeOccurrenceForSession(String sessionId) =>
+      database.customSelect(
+        "SELECT id, state FROM reminder_occurrences WHERE focus_session_id = ? AND state IN ('SCHEDULED','DUE','PRESENTED','SNOOZED') ORDER BY scheduled_at LIMIT 1",
+        variables: [Variable.withString(sessionId)],
+      ).getSingleOrNull();
+
+  Future<void> pauseFocusSession() async {
+    final active = await activeSession();
+    if (active == null || active.status != 'ACTIVE') return;
+    final occurrence = await _activeOccurrenceForSession(active.id);
+    final state = occurrence?.read<String>('state');
+    if (state == 'DUE' || state == 'PRESENTED') {
+      throw StateError(
+          'Complete the current reminder before pausing this session.');
+    }
+    final now = DateTime.now().toUtc();
+    if (occurrence != null) {
+      await _transitionReminder(
+        occurrence.read<String>('id'),
+        'SUPERSEDED',
+        reason: 'focus-session-paused',
+        occurredAt: now,
+      );
+    }
+    await database.customStatement(
+      "UPDATE focus_sessions SET status = 'PAUSED', updated_at = ? WHERE id = ?",
+      [now, active.id],
+    );
+  }
+
+  Future<void> resumeFocusSession() async {
+    final paused = await activeSession();
+    if (paused == null || paused.status != 'PAUSED') return;
+    final intervalMinutes = await reminderIntervalMinutes();
+    final row = await database.customSelect(
+      'SELECT schedule_policy_json, timezone_id FROM focus_sessions WHERE id = ?',
+      variables: [Variable.withString(paused.id)],
+    ).getSingle();
+    final policy = <String, Object>{
+      ..._policy(row.read<String>('schedule_policy_json')),
+      'intervalMinutes': intervalMinutes,
+    };
+    final policyJson = jsonEncode(policy);
+    final now = DateTime.now().toUtc();
+    await database.customStatement(
+      "UPDATE focus_sessions SET status = 'ACTIVE', schedule_policy_json = ?, updated_at = ? WHERE id = ?",
+      [policyJson, now, paused.id],
+    );
+    final occurrenceId = generateSyncId();
+    final dueAt = now.add(Duration(minutes: intervalMinutes));
+    await database.customStatement(
+      "INSERT INTO reminder_occurrences (id, owner_id, focus_session_id, state, scheduled_at, original_scheduled_at, timezone_id, policy_snapshot_json, version, created_at, updated_at) VALUES (?, ?, ?, 'SCHEDULED', ?, ?, ?, ?, ?, ?, ?)",
+      [
+        occurrenceId,
+        _ownerId,
+        paused.id,
+        dueAt,
+        dueAt,
+        row.read<String>('timezone_id'),
+        policyJson,
+        generateSyncId(),
+        now,
+        now,
+      ],
+    );
+    await _queueReminderSchedule(occurrenceId, now);
+  }
+
   Future<void> stopFocusSession() async {
     final active = await activeSession();
     if (active == null) return;
+    final occurrence = await _activeOccurrenceForSession(active.id);
+    final state = occurrence?.read<String>('state');
+    if (state == 'DUE' || state == 'PRESENTED') {
+      throw StateError(
+          'Complete the current reminder before stopping this session.');
+    }
     final now = DateTime.now().toUtc();
-    await database.transaction(() async {
-      await database.customStatement(
-          "UPDATE focus_sessions SET status = 'COMPLETED', ended_at = ?, updated_at = ? WHERE id = ?",
-          [now, now, active.id]);
-    });
+    if (occurrence != null) {
+      await _transitionReminder(
+        occurrence.read<String>('id'),
+        'SUPERSEDED',
+        reason: 'focus-session-stopped',
+        occurredAt: now,
+      );
+    }
+    await database.customStatement(
+        "UPDATE focus_sessions SET status = 'COMPLETED', ended_at = ?, updated_at = ? WHERE id = ?",
+        [now, now, active.id]);
   }
 
   Future<List<CheckInSummary>> history(
@@ -617,12 +814,88 @@ class FocusLogRepository {
     }
 
     final total = completedCount + missedCount;
+    final completionPercentage =
+        total == 0 ? 0 : (completedCount * 100 / total).round();
+    final completionDelays = occurrences
+        .where((row) =>
+            row.read<String>('state') == 'COMPLETED' &&
+            row.readNullable<DateTime>('resolved_at') != null)
+        .map((row) => row
+            .read<DateTime>('resolved_at')
+            .difference(row.read<DateTime>('scheduled_at'))
+            .inMinutes
+            .clamp(0, 1 << 30))
+        .toList();
+    final averageResponseDelayMinutes = completionDelays.isEmpty
+        ? 0
+        : (completionDelays.reduce((left, right) => left + right) /
+                completionDelays.length)
+            .round();
+    var runningStreak = 0;
+    var longestFocusStreak = 0;
+    for (final occurrence in occurrences) {
+      final state = occurrence.read<String>('state');
+      if (state == 'COMPLETED') {
+        runningStreak += 1;
+        if (runningStreak > longestFocusStreak) {
+          longestFocusStreak = runningStreak;
+        }
+      } else if (const {'MISSED', 'SKIPPED', 'EMERGENCY_DISMISSED'}
+          .contains(state)) {
+        runningStreak = 0;
+      }
+    }
     final queued = (await database
             .customSelect(
                 'SELECT COUNT(*) AS count FROM outbox_operations WHERE acknowledged_at IS NULL')
             .getSingle())
         .read<int>('count');
     final timeline = await _completeDayLog(bounds);
+    final activityCounts = <String, int>{};
+    final wordCounts = <String, int>{};
+    const ignoredWords = {
+      'about',
+      'after',
+      'again',
+      'also',
+      'and',
+      'been',
+      'being',
+      'completed',
+      'during',
+      'focus',
+      'from',
+      'have',
+      'into',
+      'just',
+      'that',
+      'the',
+      'their',
+      'this',
+      'was',
+      'were',
+      'what',
+      'with',
+    };
+    for (final entry in timeline.where((entry) => entry.kind == 'CHECK_IN')) {
+      activityCounts[entry.detail] = (activityCounts[entry.detail] ?? 0) + 1;
+      for (final word in entry.detail
+          .toLowerCase()
+          .split(RegExp(r"[^a-z0-9À-ž'’-]+"))
+          .where((word) => word.length >= 3 && !ignoredWords.contains(word))) {
+        wordCounts[word] = (wordCounts[word] ?? 0) + 1;
+      }
+    }
+    final rankedActivities = activityCounts.entries.toList()
+      ..sort((left, right) {
+        final count = right.value.compareTo(left.value);
+        return count != 0 ? count : left.key.compareTo(right.key);
+      });
+    final rankedWords = wordCounts.entries.toList()
+      ..sort((left, right) {
+        final count = right.value.compareTo(left.value);
+        return count != 0 ? count : left.key.compareTo(right.key);
+      });
     final occurrenceStates = <String, int>{};
     for (final row in occurrences) {
       final state = row.read<String>('state');
@@ -635,7 +908,15 @@ class FocusLogRepository {
         completedIntervals: completedCount,
         missedIntervals: missedCount,
         totalTrackedMinutes: trackedMinutes.round(),
-        focusScore: total == 0 ? 0 : (completedCount * 100 / total).round(),
+        focusScore: completionPercentage,
+        completionPercentage: completionPercentage,
+        averageResponseDelayMinutes: averageResponseDelayMinutes,
+        longestFocusStreak: longestFocusStreak,
+        mostCommonActivity:
+            rankedActivities.isEmpty ? null : rankedActivities.first.key,
+        wordCloud: {
+          for (final entry in rankedWords.take(16)) entry.key: entry.value,
+        },
         categories: {
           for (final row in categoryRows)
             row.read<String>('name'): row.read<int>('count')
@@ -1109,7 +1390,7 @@ class FocusLogRepository {
         return {
           ...defaultReminderPolicy,
           'intervalMinutes':
-              (parsed['intervalMinutes'] as num?)?.toInt().clamp(1, 1440) ?? 30,
+              (parsed['intervalMinutes'] as num?)?.toInt().clamp(5, 240) ?? 15,
           'responseWindowMinutes': (parsed['responseWindowMinutes'] as num?)
                   ?.toInt()
                   .clamp(5, 1440) ??

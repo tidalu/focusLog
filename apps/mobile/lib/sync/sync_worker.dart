@@ -272,7 +272,46 @@ class SyncWorker {
           DateTime.now().toUtc(),
         ],
       );
+    } else {
+      await database.customStatement(
+        'UPDATE focus_modes SET interval_minutes = ?, policy_json = ?, version = ?, updated_at = ? WHERE id = ?',
+        [
+          mode['intervalMinutes'],
+          jsonEncode(mode['policy']),
+          mode['version'],
+          DateTime.now().toUtc(),
+          modeId,
+        ],
+      );
     }
+    final settings = await database.customSelect(
+      'SELECT values_json FROM settings WHERE owner_id = ?',
+      variables: [Variable.withString(identity.ownerId)],
+    ).getSingleOrNull();
+    final values = <String, dynamic>{};
+    if (settings != null) {
+      try {
+        final decoded = jsonDecode(settings.read<String>('values_json'));
+        if (decoded is Map<String, dynamic>) values.addAll(decoded);
+      } catch (_) {
+        // Replace malformed local settings without affecting synchronized data.
+      }
+    }
+    values['reminderIntervalMinutes'] = mode['intervalMinutes'];
+    final settingsNow = DateTime.now().toUtc();
+    await database.customStatement(
+      'INSERT INTO settings (owner_id, values_json, version, created_at, updated_at) '
+      'VALUES (?, ?, ?, ?, ?) '
+      'ON CONFLICT(owner_id) DO UPDATE SET values_json = excluded.values_json, '
+      'version = excluded.version, updated_at = excluded.updated_at',
+      [
+        identity.ownerId,
+        jsonEncode(values),
+        mode['version'],
+        settingsNow,
+        settingsNow,
+      ],
+    );
     await database.customStatement(
       "INSERT OR IGNORE INTO focus_sessions (id, owner_id, focus_mode_id, name, status, schedule_policy_json, timezone_id, started_at, version, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)",
       [

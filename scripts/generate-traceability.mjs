@@ -66,7 +66,7 @@ const rows = [
   [
     'REM-004',
     'ACC-033',
-    'apps/mobile/integration_test/android_notification_test.dart; FINAL-AUDIT.md',
+    'apps/desktop/src/renderer/foundation.test.ts; apps/mobile/test/android_release_configuration_test.dart; apps/mobile/integration_test/android_notification_test.dart; FINAL-AUDIT.md',
     'automated + audited manual'
   ],
   [

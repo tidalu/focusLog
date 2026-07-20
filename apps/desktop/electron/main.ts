@@ -22,8 +22,18 @@ import { ReminderScheduler } from './reminders/scheduler.js';
 import { AuthenticatedFocusLogClient } from './sync/authenticated-client.js';
 import { FocusLogWebSocketClient } from './sync/websocket-client.js';
 import { drainOutbox } from './database/sync-worker.js';
-import { defaultReminderPolicy } from './reminders/policy.js';
-import { queueReminderSchedule } from './reminders/operations.js';
+import { createOfflineCheckIn } from './database/local-sync.js';
+import { defaultReminderPolicy, parseReminderPolicy } from './reminders/policy.js';
+import { queueReminderSchedule, transitionReminderOffline } from './reminders/operations.js';
+import {
+  maximumReminderInterval,
+  minimumReminderInterval,
+  readOwnerSettings,
+  reminderIntervalChoices,
+  reminderIntervalMinutes,
+  setReminderInterval,
+  writeOwnerSettings
+} from './reminders/preferences.js';
 import { loadOrCreateProtectedSecret } from './security/protected-secret.js';
 import { electronSecretProtector } from './security/electron-secret-protector.js';
 import {
@@ -47,6 +57,9 @@ const reminderOverlays = new Map<string, BrowserWindow>();
 let isQuitting = false;
 let suspendedAt: Date | undefined;
 let websocketClient: FocusLogWebSocketClient | undefined;
+let synchronizationOnline = false;
+let lastSynchronizedAt: string | undefined;
+let lastSynchronizationError: string | undefined;
 const focusLogApiUrl =
   process.env.FOCUSLOG_API_URL?.trim() || 'https://focuslog-backend.onrender.com';
 
@@ -91,20 +104,17 @@ function ensureLocalIdentity(): void {
 
 function configureWindowsStartup(database: ReturnType<typeof openDesktopDatabase>): void {
   if (process.platform !== 'win32') return;
-  const row = database
-    .prepare('SELECT values_json FROM settings WHERE owner_id = ?')
-    .get(ownerId) as { values_json: string } | undefined;
-  const values = row ? (JSON.parse(row.values_json) as Record<string, unknown>) : {};
+  const values = readOwnerSettings(database, ownerId);
   const enabled = typeof values.startupEnabled === 'boolean' ? values.startupEnabled : true;
   app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
-  if (!row) {
-    const now = new Date().toISOString();
-    database
-      .prepare(
-        'INSERT INTO settings (owner_id, values_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-      )
-      .run(ownerId, JSON.stringify({ startupEnabled: enabled }), ulid(), now, now);
-  }
+  writeOwnerSettings(database, ownerId, {
+    ...values,
+    startupEnabled: enabled,
+    reminderIntervalMinutes:
+      typeof values.reminderIntervalMinutes === 'number'
+        ? values.reminderIntervalMinutes
+        : defaultReminderPolicy.intervalMinutes
+  });
 }
 
 function createReminderOverlay(occurrenceId: string): void {
@@ -113,14 +123,25 @@ function createReminderOverlay(occurrenceId: string): void {
     existing.focus();
     return;
   }
+  const occurrence = desktopDatabase!
+    .prepare('SELECT policy_snapshot_json FROM reminder_occurrences WHERE id = ?')
+    .get(occurrenceId) as { policy_snapshot_json: string } | undefined;
+  const intervalMinutes = parseReminderPolicy(
+    occurrence?.policy_snapshot_json ?? defaultReminderPolicy
+  ).intervalMinutes;
   const overlay = new BrowserWindow({
-    width: 520,
-    height: 360,
+    fullscreen: true,
+    kiosk: true,
+    frame: false,
     alwaysOnTop: true,
-    skipTaskbar: false,
+    autoHideMenuBar: true,
+    closable: false,
+    focusable: true,
+    skipTaskbar: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
+    backgroundColor: '#07080d',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -130,12 +151,87 @@ function createReminderOverlay(occurrenceId: string): void {
   });
   reminderOverlays.set(occurrenceId, overlay);
   overlay.setAlwaysOnTop(true, 'screen-saver');
+  overlay.setKiosk(true);
+  overlay.setFullScreen(true);
   overlay.on('close', (event) => {
     if (!isQuitting) event.preventDefault();
   });
+  overlay.on('blur', () => {
+    setTimeout(() => {
+      if (overlay.isDestroyed() || isQuitting) return;
+      overlay.show();
+      overlay.setAlwaysOnTop(true, 'screen-saver');
+      overlay.moveTop();
+      overlay.focus();
+    }, 80);
+  });
+  overlay.on('minimize', () => {
+    if (!overlay.isDestroyed()) {
+      overlay.restore();
+      overlay.focus();
+    }
+  });
+  overlay.on('leave-full-screen', () => {
+    if (!overlay.isDestroyed() && !isQuitting) overlay.setFullScreen(true);
+  });
+  overlay.webContents.on('before-input-event', (event, input) => {
+    if (
+      input.key === 'Escape' ||
+      input.key === 'F11' ||
+      (input.alt && input.key.toLowerCase() === 'f4')
+    ) {
+      event.preventDefault();
+    }
+  });
   overlay.on('closed', () => reminderOverlays.delete(occurrenceId));
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>FocusLog reminder</title><style>body{font-family:system-ui;margin:2rem;background:#101827;color:#fff}textarea{width:100%;min-height:8rem;font:inherit}.actions{display:flex;gap:.5rem;flex-wrap:wrap}button{margin-top:1rem;padding:.7rem 1rem}#status{min-height:1.5rem}.secondary{background:#243044;color:#fff;border:1px solid #64748b}</style></head><body><main aria-labelledby="title"><h1 id="title">FocusLog reminder</h1><p>Describe what you are doing to complete this reminder. Closing the window is disabled until the reminder is resolved.</p><form id="form"><label for="response">Current activity (at least 20 characters)</label><textarea id="response" required minlength="20" aria-describedby="status"></textarea><p id="status" aria-live="polite"></p><div class="actions"><button id="complete" type="submit" disabled>Complete reminder</button><button class="secondary" type="button" data-snooze="5">Snooze 5 min</button><button class="secondary" type="button" data-snooze="10">Snooze 10 min</button><button class="secondary" id="emergency" type="button">Emergency dismiss</button></div></form></main><script>const id=${JSON.stringify(occurrenceId)};const field=document.querySelector('#response');const button=document.querySelector('#complete');const status=document.querySelector('#status');function update(){const remaining=Math.max(0,20-[...field.value.trim()].length);button.disabled=remaining>0;status.textContent=remaining?remaining+' characters remaining':'Ready to complete';window.focuslog.preserveDraft(id,field.value)}field.addEventListener('input',update);document.querySelectorAll('[data-snooze]').forEach(item=>item.addEventListener('click',async()=>{try{await window.focuslog.snoozeReminder(id,Number(item.dataset.snooze))}catch(error){status.textContent=error instanceof Error?error.message:'Unable to snooze'}}));document.querySelector('#emergency').addEventListener('click',async()=>{if(confirm('Emergency dismissal records this interval without completing it. Continue?'))await window.focuslog.emergencyDismissReminder(id)});document.querySelector('#form').addEventListener('submit',async event=>{event.preventDefault();try{await window.focuslog.completeReminder(id,field.value)}catch(error){status.textContent=error instanceof Error?error.message:'Unable to complete reminder'}});window.focuslog.getDraft(id).then(text=>{field.value=text;update()});</script></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FocusLog reminder</title><style>:root{color-scheme:dark;font-family:Inter,"Segoe UI",system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 15%,#272b3c 0,#101119 42%,#07080d 100%);color:#f7f7fb;animation:appear .24s ease-out}body::before{content:"";position:fixed;inset:0;background:rgba(5,6,10,.42);backdrop-filter:blur(18px)}main{position:relative;width:min(820px,calc(100vw - 64px));display:grid;gap:30px}h1{max-width:760px;margin:0;font-size:clamp(34px,4.3vw,64px);font-weight:650;letter-spacing:-.045em;line-height:1.05}form{display:grid;gap:14px}label{font-size:14px;font-weight:650;color:#aeb2c3;letter-spacing:.02em}textarea{width:100%;min-height:230px;resize:none;border:1px solid #ffffff24;border-radius:24px;padding:24px 26px;background:#171922e8;color:#fff;box-shadow:0 24px 70px #0008,inset 0 1px #ffffff12;font:500 clamp(20px,2vw,28px)/1.45 inherit;outline:none;transition:border-color .18s,box-shadow .18s}textarea:focus{border-color:#8d91ff;box-shadow:0 0 0 4px #777cff2b,0 30px 90px #0009}.footer{display:flex;align-items:center;justify-content:space-between;gap:20px}.counter{margin:0;color:#aeb2c3;font-size:15px}.counter.ready{color:#7ce7ae}button{border:0;border-radius:16px;padding:15px 28px;background:linear-gradient(135deg,#8a8fff,#6d63ef);color:white;font:700 16px inherit;box-shadow:0 12px 30px #6d63ef42;cursor:pointer;transition:transform .16s,opacity .16s}button:hover:not(:disabled){transform:translateY(-2px)}button:focus-visible{outline:3px solid #fff;outline-offset:4px}button:disabled{cursor:not-allowed;opacity:.36;box-shadow:none}body.resolved{animation:resolve .24s ease-in forwards}@keyframes appear{from{opacity:0;transform:scale(1.015)}to{opacity:1;transform:none}}@keyframes resolve{to{opacity:0;transform:scale(.985)}}@media(max-width:640px){main{width:calc(100vw - 32px)}.footer{align-items:stretch;flex-direction:column}button{width:100%}}</style></head><body><main aria-labelledby="question"><h1 id="question">What did you accomplish during the last ${intervalMinutes} minutes?</h1><form id="form"><label for="response">Your response</label><textarea id="response" required minlength="20" aria-describedby="counter" autocomplete="off" spellcheck="true"></textarea><div class="footer"><p id="counter" class="counter" aria-live="polite">0 / 20</p><button id="submit" type="submit" disabled>Submit check-in</button></div></form></main><script>const id=${JSON.stringify(occurrenceId)};const field=document.querySelector('#response');const button=document.querySelector('#submit');const counter=document.querySelector('#counter');let saving;function update(){const count=[...field.value.trim()].length;button.disabled=count<20;counter.textContent=count+' / 20'+(count>=20?' ✓':'');counter.classList.toggle('ready',count>=20);clearTimeout(saving);saving=setTimeout(()=>window.focuslog.preserveDraft(id,field.value),80)}field.addEventListener('input',update);document.querySelector('#form').addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;try{await window.focuslog.completeReminder(id,field.value);document.body.classList.add('resolved')}catch(error){button.disabled=false;counter.textContent=error instanceof Error?error.message:'Unable to save your response'}});window.focuslog.getDraft(id).then(text=>{field.value=text;update();field.focus();field.setSelectionRange(field.value.length,field.value.length)});window.addEventListener('focus',()=>field.focus());</script></body></html>`;
   void overlay.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+  overlay.once('ready-to-show', () => {
+    overlay.show();
+    overlay.focus();
+  });
+}
+
+function scheduleSessionReminder(
+  database: ReturnType<typeof openDesktopDatabase>,
+  sessionId: string,
+  intervalMinutes: number,
+  policyJson: string,
+  now = new Date()
+): string {
+  const session = database
+    .prepare('SELECT timezone_id AS timezoneId FROM focus_sessions WHERE id = ?')
+    .get(sessionId) as { timezoneId: string } | undefined;
+  if (!session) throw new Error('Focus session was not found.');
+  const timestamp = now.toISOString();
+  const dueAt = new Date(now.getTime() + intervalMinutes * 60_000).toISOString();
+  const occurrenceId = ulid();
+  database
+    .prepare(
+      `INSERT INTO reminder_occurrences
+        (id, owner_id, focus_session_id, state, scheduled_at, original_scheduled_at,
+         timezone_id, policy_snapshot_json, version, created_at, updated_at)
+       VALUES (?, ?, ?, 'SCHEDULED', ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      occurrenceId,
+      ownerId,
+      sessionId,
+      dueAt,
+      dueAt,
+      session.timezoneId,
+      policyJson,
+      ulid(),
+      timestamp,
+      timestamp
+    );
+  queueReminderSchedule(database, {
+    ownerId,
+    deviceId,
+    occurrenceId,
+    occurredAt: timestamp
+  });
+  return occurrenceId;
 }
 
 app
@@ -167,10 +263,15 @@ app
       suspendedAt = undefined;
     });
     powerMonitor.on('unlock-screen', () => scheduler?.recover('unlock'));
+    const reporting = new ReportingService(database, ownerId);
     if (focusLogApiUrl) {
       const client = new AuthenticatedFocusLogClient(new URL(focusLogApiUrl), identity!);
-      const synchronize = () =>
-        void drainOutbox(database, client, new Date(), deviceId).then(() => {
+      const synchronize = async () => {
+        try {
+          await drainOutbox(database, client, new Date(), deviceId);
+          synchronizationOnline = true;
+          lastSynchronizedAt = new Date().toISOString();
+          lastSynchronizationError = undefined;
           for (const [occurrenceId, overlay] of reminderOverlays) {
             const row = database
               .prepare('SELECT state FROM reminder_occurrences WHERE id = ?')
@@ -184,13 +285,17 @@ app
               overlay.destroy();
           }
           scheduler?.tick();
-        });
-      synchronize();
-      setInterval(synchronize, 30_000);
+        } catch (error) {
+          synchronizationOnline = false;
+          lastSynchronizationError = error instanceof Error ? error.message : String(error);
+        }
+      };
+      void synchronize();
+      setInterval(() => void synchronize(), 30_000);
       websocketClient = new FocusLogWebSocketClient(
         new URL(focusLogApiUrl),
         identity!,
-        synchronize,
+        () => void synchronize(),
         () => {
           dialog.showErrorBox(
             'FocusLog device revoked',
@@ -204,14 +309,79 @@ app
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Open FocusLog', click: () => createWindow() },
-        { label: 'Quit', click: () => app.quit() }
+        {
+          label: 'Quit',
+          click: () => {
+            const overlay = reminderOverlays.values().next().value as BrowserWindow | undefined;
+            if (overlay && !overlay.isDestroyed()) {
+              overlay.show();
+              overlay.focus();
+              return;
+            }
+            app.quit();
+          }
+        }
       ])
     );
-    ipcMain.handle('focuslog:status', () => ({
-      offline: true,
-      databaseReady: Boolean(desktopDatabase),
-      startupEnabled: process.platform === 'win32' ? app.getLoginItemSettings().openAtLogin : false
+    ipcMain.handle('focuslog:status', () => {
+      const queuedOperations = (
+        database
+          .prepare('SELECT COUNT(*) AS count FROM outbox_operations WHERE acknowledged_at IS NULL')
+          .get() as { count: number }
+      ).count;
+      return {
+        offline: !synchronizationOnline,
+        databaseReady: Boolean(desktopDatabase),
+        startupEnabled:
+          process.platform === 'win32' ? app.getLoginItemSettings().openAtLogin : false,
+        queuedOperations,
+        lastSynchronizedAt,
+        lastSynchronizationError
+      };
+    });
+    ipcMain.handle('focuslog:dashboard-summary', () => {
+      const session = database
+        .prepare(
+          `SELECT id, COALESCE(name, 'Focus session') AS name, status,
+                  started_at AS startedAt
+             FROM focus_sessions
+            WHERE owner_id = ? AND status IN ('ACTIVE', 'PAUSED')
+            ORDER BY started_at DESC LIMIT 1`
+        )
+        .get(ownerId) as
+        { id: string; name: string; status: 'ACTIVE' | 'PAUSED'; startedAt: string } | undefined;
+      const nextReminder = database
+        .prepare(
+          `SELECT id, state, scheduled_at AS dueAt
+             FROM reminder_occurrences
+            WHERE owner_id = ?
+              AND state IN ('SCHEDULED', 'DUE', 'PRESENTED', 'SNOOZED')
+            ORDER BY scheduled_at LIMIT 1`
+        )
+        .get(ownerId) as { id: string; state: string; dueAt: string } | undefined;
+      const timezoneId = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const day = localDayForInstant(new Date(), timezoneId);
+      const today = reporting.daily({ day, timezoneId });
+      return {
+        activeSession: session ?? null,
+        nextReminder: nextReminder ?? null,
+        reminderIntervalMinutes: reminderIntervalMinutes(database, ownerId),
+        todayCompletionPercentage: today.focusScore,
+        completedToday: today.completedIntervals,
+        missedToday: today.missedIntervals
+      };
+    });
+    ipcMain.handle('focuslog:reminder-preferences', () => ({
+      intervalMinutes: reminderIntervalMinutes(database, ownerId),
+      choices: [...reminderIntervalChoices],
+      minimum: minimumReminderInterval,
+      maximum: maximumReminderInterval
     }));
+    ipcMain.handle('focuslog:set-reminder-interval', (_event, intervalMinutes: number) => {
+      const saved = setReminderInterval(database, ownerId, deviceId, intervalMinutes);
+      scheduler?.tick();
+      return saved;
+    });
     ipcMain.handle('focuslog:device-identity', () => ({
       ownerId,
       deviceId,
@@ -227,17 +397,10 @@ app
     ipcMain.handle('focuslog:set-startup', (_event, enabled: boolean) => {
       if (process.platform === 'win32') {
         app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
-        const current = database
-          .prepare('SELECT values_json FROM settings WHERE owner_id = ?')
-          .get(ownerId) as { values_json: string } | undefined;
-        const values = current ? (JSON.parse(current.values_json) as Record<string, unknown>) : {};
-        values.startupEnabled = enabled;
-        const now = new Date().toISOString();
-        database
-          .prepare(
-            'INSERT INTO settings (owner_id, values_json, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET values_json = excluded.values_json, version = excluded.version, updated_at = excluded.updated_at'
-          )
-          .run(ownerId, JSON.stringify(values), ulid(), now, now);
+        writeOwnerSettings(database, ownerId, {
+          ...readOwnerSettings(database, ownerId),
+          startupEnabled: enabled
+        });
       }
       return enabled;
     });
@@ -334,7 +497,12 @@ app
         throw new Error('Reminder completion requires at least 20 characters.');
       scheduler?.complete(occurrenceId, text);
       database.prepare('DELETE FROM reminder_drafts WHERE occurrence_id = ?').run(occurrenceId);
-      reminderOverlays.get(occurrenceId)?.destroy();
+      const overlay = reminderOverlays.get(occurrenceId);
+      if (overlay && !overlay.isDestroyed()) {
+        setTimeout(() => {
+          if (!overlay.isDestroyed()) overlay.destroy();
+        }, 220);
+      }
       return { completed: true };
     });
     ipcMain.handle('focuslog:snooze-reminder', (_event, occurrenceId: string, minutes: number) => {
@@ -348,21 +516,39 @@ app
       return { dismissed: true };
     });
     ipcMain.handle('focuslog:start-focus-session', () => {
+      const existing = database
+        .prepare(
+          `SELECT id FROM focus_sessions
+            WHERE owner_id = ? AND status IN ('ACTIVE', 'PAUSED')
+            ORDER BY started_at DESC LIMIT 1`
+        )
+        .get(ownerId) as { id: string } | undefined;
+      if (existing) throw new Error('A focus session is already active.');
       const now = new Date().toISOString();
+      const intervalMinutes = reminderIntervalMinutes(database, ownerId);
       const mode = database
         .prepare(
           'SELECT id, name FROM focus_modes WHERE owner_id = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1'
         )
         .get(ownerId) as { id: string; name: string } | undefined;
-      const policy = { ...defaultReminderPolicy, intervalMinutes: 30 };
+      const policy = { ...defaultReminderPolicy, intervalMinutes };
       const policyJson = JSON.stringify(policy);
       const modeId = mode?.id ?? ulid();
-      if (!mode)
+      if (!mode) {
         database
           .prepare(
-            "INSERT INTO focus_modes (id, owner_id, name, interval_minutes, policy_json, version, created_at, updated_at) VALUES (?, ?, 'Default focus', 30, ?, ?, ?, ?)"
+            "INSERT INTO focus_modes (id, owner_id, name, interval_minutes, policy_json, version, created_at, updated_at) VALUES (?, ?, 'Default focus', ?, ?, ?, ?, ?)"
           )
-          .run(modeId, ownerId, policyJson, ulid(), now, now);
+          .run(modeId, ownerId, intervalMinutes, policyJson, ulid(), now, now);
+      } else {
+        database
+          .prepare(
+            `UPDATE focus_modes
+                SET interval_minutes = ?, policy_json = ?, version = ?, updated_at = ?
+              WHERE id = ?`
+          )
+          .run(intervalMinutes, policyJson, ulid(), now, modeId);
+      }
       const id = ulid();
       database
         .prepare(
@@ -379,45 +565,112 @@ app
           now,
           now
         );
-      const firstReminderAt = new Date(Date.now() + 30 * 60_000).toISOString();
-      const reminderId = ulid();
-      database
-        .prepare(
-          "INSERT INTO reminder_occurrences (id, owner_id, focus_session_id, state, scheduled_at, original_scheduled_at, timezone_id, policy_snapshot_json, version, created_at, updated_at) VALUES (?, ?, ?, 'SCHEDULED', ?, ?, ?, ?, ?, ?, ?)"
-        )
-        .run(
-          reminderId,
-          ownerId,
-          id,
-          firstReminderAt,
-          firstReminderAt,
-          Intl.DateTimeFormat().resolvedOptions().timeZone,
-          policyJson,
-          ulid(),
-          now,
-          now
-        );
-      queueReminderSchedule(database, {
-        ownerId,
-        deviceId,
-        occurrenceId: reminderId,
-        occurredAt: now
-      });
-      return { id, name: 'Focus session' };
+      scheduleSessionReminder(database, id, intervalMinutes, policyJson, new Date(now));
+      return { id, name: 'Focus session', status: 'ACTIVE' };
     });
-    ipcMain.handle('focuslog:stop-focus-session', () => {
+    ipcMain.handle('focuslog:pause-focus-session', () => {
       const active = database
         .prepare(
           "SELECT id FROM focus_sessions WHERE owner_id = ? AND status = 'ACTIVE' ORDER BY started_at DESC LIMIT 1"
         )
         .get(ownerId) as { id: string } | undefined;
       if (!active) return null;
+      const pending = database
+        .prepare(
+          `SELECT id, state FROM reminder_occurrences
+            WHERE focus_session_id = ?
+              AND state IN ('SCHEDULED', 'DUE', 'PRESENTED', 'SNOOZED')
+            ORDER BY scheduled_at LIMIT 1`
+        )
+        .get(active.id) as { id: string; state: string } | undefined;
+      if (pending && (pending.state === 'DUE' || pending.state === 'PRESENTED')) {
+        throw new Error('Complete the current reminder before pausing this session.');
+      }
+      const timestamp = new Date().toISOString();
+      database.transaction(() => {
+        if (pending) {
+          transitionReminderOffline(database, {
+            ownerId,
+            deviceId,
+            occurrenceId: pending.id,
+            to: 'SUPERSEDED',
+            occurredAt: timestamp,
+            reason: 'focus-session-paused'
+          });
+        }
+        database
+          .prepare("UPDATE focus_sessions SET status = 'PAUSED', updated_at = ? WHERE id = ?")
+          .run(timestamp, active.id);
+      })();
+      return { id: active.id, status: 'PAUSED' };
+    });
+    ipcMain.handle('focuslog:resume-focus-session', () => {
+      const paused = database
+        .prepare(
+          "SELECT id, schedule_policy_json AS policyJson FROM focus_sessions WHERE owner_id = ? AND status = 'PAUSED' ORDER BY started_at DESC LIMIT 1"
+        )
+        .get(ownerId) as { id: string; policyJson: string } | undefined;
+      if (!paused) return null;
+      const intervalMinutes = reminderIntervalMinutes(database, ownerId);
+      const policyJson = JSON.stringify({
+        ...parseReminderPolicy(paused.policyJson),
+        intervalMinutes
+      });
+      const timestamp = new Date().toISOString();
       database
         .prepare(
-          "UPDATE focus_sessions SET status = 'COMPLETED', ended_at = ?, updated_at = ? WHERE id = ?"
+          "UPDATE focus_sessions SET status = 'ACTIVE', schedule_policy_json = ?, updated_at = ? WHERE id = ?"
         )
-        .run(new Date().toISOString(), new Date().toISOString(), active.id);
+        .run(policyJson, timestamp, paused.id);
+      scheduleSessionReminder(database, paused.id, intervalMinutes, policyJson);
+      return { id: paused.id, status: 'ACTIVE' };
+    });
+    ipcMain.handle('focuslog:stop-focus-session', () => {
+      const active = database
+        .prepare(
+          "SELECT id FROM focus_sessions WHERE owner_id = ? AND status IN ('ACTIVE', 'PAUSED') ORDER BY started_at DESC LIMIT 1"
+        )
+        .get(ownerId) as { id: string } | undefined;
+      if (!active) return null;
+      const pending = database
+        .prepare(
+          `SELECT id, state FROM reminder_occurrences
+            WHERE focus_session_id = ?
+              AND state IN ('SCHEDULED', 'DUE', 'PRESENTED', 'SNOOZED')
+            ORDER BY scheduled_at LIMIT 1`
+        )
+        .get(active.id) as { id: string; state: string } | undefined;
+      if (pending && (pending.state === 'DUE' || pending.state === 'PRESENTED')) {
+        throw new Error('Complete the current reminder before stopping this session.');
+      }
+      const timestamp = new Date().toISOString();
+      database.transaction(() => {
+        if (pending) {
+          transitionReminderOffline(database, {
+            ownerId,
+            deviceId,
+            occurrenceId: pending.id,
+            to: 'SUPERSEDED',
+            occurredAt: timestamp,
+            reason: 'focus-session-stopped'
+          });
+        }
+        database
+          .prepare(
+            "UPDATE focus_sessions SET status = 'COMPLETED', ended_at = ?, updated_at = ? WHERE id = ?"
+          )
+          .run(timestamp, timestamp, active.id);
+      })();
       return active;
+    });
+    ipcMain.handle('focuslog:create-manual-entry', (_event, text: string) => {
+      if (!text.trim()) throw new Error('Manual entry cannot be empty.');
+      return createOfflineCheckIn(database, {
+        ownerId,
+        deviceId,
+        body: text,
+        timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone
+      });
     });
     ipcMain.handle('focuslog:history', (_event, queryOrFilters: string | CheckInSearchFilters) =>
       searchCheckIns(
@@ -443,7 +696,6 @@ app
         )
         .all('Focus session', ownerId)
     }));
-    const reporting = new ReportingService(database, ownerId);
     ipcMain.handle('focuslog:report', (_event, requested?: Partial<ReportSelection>) => {
       const timezoneId =
         requested?.timezoneId ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';

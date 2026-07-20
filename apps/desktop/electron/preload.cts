@@ -3,6 +3,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('focuslog', {
   platform: process.platform,
   getStatus: () => ipcRenderer.invoke('focuslog:status'),
+  getDashboardSummary: () => ipcRenderer.invoke('focuslog:dashboard-summary'),
+  getReminderPreferences: () => ipcRenderer.invoke('focuslog:reminder-preferences'),
+  setReminderInterval: (intervalMinutes: number) =>
+    ipcRenderer.invoke('focuslog:set-reminder-interval', intervalMinutes),
   getDeviceIdentity: () => ipcRenderer.invoke('focuslog:device-identity'),
   bootstrapDevice: (apiUrl?: string) => ipcRenderer.invoke('focuslog:bootstrap-device', apiUrl),
   setStartup: (enabled: boolean) => ipcRenderer.invoke('focuslog:set-startup', enabled),
@@ -21,7 +25,10 @@ contextBridge.exposeInMainWorld('focuslog', {
   emergencyDismissReminder: (occurrenceId: string) =>
     ipcRenderer.invoke('focuslog:emergency-dismiss-reminder', occurrenceId),
   startFocusSession: () => ipcRenderer.invoke('focuslog:start-focus-session'),
+  pauseFocusSession: () => ipcRenderer.invoke('focuslog:pause-focus-session'),
+  resumeFocusSession: () => ipcRenderer.invoke('focuslog:resume-focus-session'),
   stopFocusSession: () => ipcRenderer.invoke('focuslog:stop-focus-session'),
+  createManualEntry: (text: string) => ipcRenderer.invoke('focuslog:create-manual-entry', text),
   history: (filters: { query?: string; tagId?: string; categoryId?: string; sessionId?: string }) =>
     ipcRenderer.invoke('focuslog:history', filters),
   searchFilters: () => ipcRenderer.invoke('focuslog:search-filters'),

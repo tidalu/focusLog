@@ -1,8 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-type Page = 'Dashboard' | 'History' | 'Reports' | 'Heatmap' | 'Settings' | 'Pair device';
+type Page = 'Dashboard' | 'History' | 'Reports' | 'Calendar' | 'Settings' | 'Pair device';
+type IconName =
+  | 'calendar'
+  | 'check'
+  | 'dashboard'
+  | 'devices'
+  | 'history'
+  | 'moon'
+  | 'pause'
+  | 'play'
+  | 'plus'
+  | 'reports'
+  | 'search'
+  | 'settings'
+  | 'stop'
+  | 'sun';
 type HistoryItem = { id: string; body: string; submittedAt: string };
 type SearchFilters = Awaited<ReturnType<Window['focuslog']['searchFilters']>>;
+type DesktopStatus = Awaited<ReturnType<Window['focuslog']['getStatus']>>;
+type DashboardSummary = Awaited<ReturnType<Window['focuslog']['getDashboardSummary']>>;
+type ReminderPreferences = Awaited<ReturnType<Window['focuslog']['getReminderPreferences']>>;
 type TimelineItem = {
   id: string;
   kind: string;
@@ -11,22 +29,19 @@ type TimelineItem = {
   detail: string;
   originalTimezoneId?: string;
 };
-type Report = {
-  day: string;
-  timezoneId: string;
-  dayDurationMinutes: number;
-  completedIntervals: number;
-  missedIntervals: number;
-  totalTrackedMinutes: number;
-  focusScore: number;
-  categories: Array<{ name: string; count: number }>;
-  occurrenceStates: Array<{ state: string; count: number }>;
-  timeline: TimelineItem[];
-  trends: { weekly: number; monthly: number; yearly: number };
-};
+type Report = Awaited<ReturnType<Window['focuslog']['report']>>;
 type YearHeatmap = Awaited<ReturnType<Window['focuslog']['heatmap']>>;
 
 const systemTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const navigation: Array<{ page: Page; label: string; icon: IconName; shortcut: number }> = [
+  { page: 'Dashboard', label: 'Today', icon: 'dashboard', shortcut: 1 },
+  { page: 'History', label: 'History', icon: 'history', shortcut: 2 },
+  { page: 'Reports', label: 'Reports', icon: 'reports', shortcut: 3 },
+  { page: 'Calendar', label: 'Calendar', icon: 'calendar', shortcut: 4 },
+  { page: 'Settings', label: 'Settings', icon: 'settings', shortcut: 5 },
+  { page: 'Pair device', label: 'Pair device', icon: 'devices', shortcut: 6 }
+];
+
 const todayInTimezone = (timezoneId: string): string => {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezoneId,
@@ -39,13 +54,136 @@ const todayInTimezone = (timezoneId: string): string => {
   return `${get('year')}-${get('month')}-${get('day')}`;
 };
 
+function Icon({ name, size = 19 }: { name: IconName; size?: number }): React.JSX.Element {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true
+  };
+  const paths: Record<IconName, React.JSX.Element> = {
+    dashboard: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="2" />
+        <rect x="14" y="3" width="7" height="7" rx="2" />
+        <rect x="3" y="14" width="7" height="7" rx="2" />
+        <rect x="14" y="14" width="7" height="7" rx="2" />
+      </>
+    ),
+    history: (
+      <>
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5M12 7v5l3 2" />
+      </>
+    ),
+    reports: (
+      <>
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="3" />
+        <path d="M16 3v4M8 3v4M3 10h18" />
+      </>
+    ),
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1V21H9.6v-.08a1.7 1.7 0 0 0-1.1-1.52 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H3V9.6h.08A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V3h4v.08A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.35.7.6 1 .28.3.64.43 1 .4h.08v4H21a1.7 1.7 0 0 0-1.6.6Z" />
+      </>
+    ),
+    devices: (
+      <>
+        <rect x="3" y="4" width="13" height="10" rx="2" />
+        <path d="M8 20h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1M7 18h5M9.5 14v4" />
+      </>
+    ),
+    play: <path d="m8 5 11 7-11 7Z" />,
+    pause: (
+      <>
+        <path d="M9 5v14M15 5v14" />
+      </>
+    ),
+    stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+    plus: (
+      <>
+        <path d="M12 5v14M5 12h14" />
+      </>
+    ),
+    search: (
+      <>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </>
+    ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.41M17.66 6.34l1.41-1.41" />
+      </>
+    ),
+    moon: <path d="M20.5 14.1A8.4 8.4 0 0 1 9.9 3.5 8.5 8.5 0 1 0 20.5 14.1Z" />,
+    check: <path d="m5 12 4 4L19 6" />
+  };
+  return <svg {...common}>{paths[name]}</svg>;
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds <= 0) return 'Due now';
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+    : `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function PageTitle({
+  eyebrow,
+  title,
+  description
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}): React.JSX.Element {
+  return (
+    <div className="page-title">
+      <span>{eyebrow}</span>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div className="empty-state">{children}</div>;
+}
+
 export function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('Dashboard');
+  const [status, setStatus] = useState<DesktopStatus | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [preferences, setPreferences] = useState<ReminderPreferences | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('focuslog-theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   const [startup, setStartup] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
-  const [offline, setOffline] = useState(true);
-  const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualText, setManualText] = useState('');
+  const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({
@@ -67,13 +205,57 @@ export function App(): React.JSX.Element {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedDayLog, setSelectedDayLog] = useState<TimelineItem[]>([]);
   const [reportError, setReportError] = useState('');
+  const [customInterval, setCustomInterval] = useState('15');
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const refreshCore = useCallback(async () => {
+    const [nextStatus, nextSummary, nextPreferences] = await Promise.all([
+      window.focuslog.getStatus(),
+      window.focuslog.getDashboardSummary(),
+      window.focuslog.getReminderPreferences()
+    ]);
+    setStatus(nextStatus);
+    setSummary(nextSummary);
+    setPreferences(nextPreferences);
+    setStartup(nextStatus.startupEnabled);
+    setCustomInterval(String(nextPreferences.intervalMinutes));
+  }, []);
 
   useEffect(() => {
-    void window.focuslog.getStatus().then((status) => {
-      setOffline(status.offline);
-      setStartup(status.startupEnabled);
-    });
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('focuslog-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    void refreshCore();
+    const statusTimer = setInterval(() => void refreshCore(), 15_000);
+    const clockTimer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => {
+      clearInterval(statusTimer);
+      clearInterval(clockTimer);
+    };
+  }, [refreshCore]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey) return;
+      const destination = navigation.find((item) => String(item.shortcut) === event.key);
+      if (destination) {
+        event.preventDefault();
+        setPage(destination.page);
+      } else if (event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        setManualOpen(true);
+      } else if (event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPage('History');
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }
+    };
+    addEventListener('keydown', onKeyDown);
+    return () => removeEventListener('keydown', onKeyDown);
   }, []);
+
   useEffect(() => {
     if (page === 'History') {
       void window.focuslog
@@ -95,7 +277,7 @@ export function App(): React.JSX.Element {
         })
         .catch((error) => setReportError(error instanceof Error ? error.message : String(error)));
     }
-    if (page === 'Heatmap') {
+    if (page === 'Calendar') {
       void window.focuslog
         .heatmap({ year: reportYear, timezoneId: reportTimezone })
         .then((result) => {
@@ -106,422 +288,856 @@ export function App(): React.JSX.Element {
     }
   }, [page, search, tagId, categoryId, sessionId, reportDay, reportTimezone, reportYear]);
 
+  const runAction = async (action: () => Promise<unknown>, message: string) => {
+    try {
+      await action();
+      setNotice(message);
+      await refreshCore();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const reportTime = (instant: string) =>
     new Intl.DateTimeFormat(undefined, {
       timeZone: reportTimezone,
       hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+      minute: '2-digit'
     }).format(new Date(instant));
 
+  const nextReminderText = summary?.nextReminder
+    ? formatDuration(new Date(summary.nextReminder.dueAt).getTime() - now)
+    : 'No reminder scheduled';
+  const sessionElapsed = summary?.activeSession
+    ? formatDuration(now - new Date(summary.activeSession.startedAt).getTime())
+    : '—';
+  const syncLabel = status?.offline
+    ? status?.queuedOperations
+      ? `Offline · ${status.queuedOperations} queued`
+      : 'Offline-ready'
+    : 'Synchronized';
+  const navDescription = useMemo(
+    () => navigation.find((item) => item.page === page)?.label ?? page,
+    [page]
+  );
+
   return (
-    <main>
-      <header>
-        <h1>FocusLog</h1>
-        <span role="status">
-          {offline ? 'Offline - local data is safe and queued' : 'Synchronized'}
-        </span>
-      </header>
-      <nav aria-label="Main navigation">
-        {(['Dashboard', 'History', 'Reports', 'Heatmap', 'Settings', 'Pair device'] as Page[]).map(
-          (item) => (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span>FocusLog</span>
+        </div>
+        <nav aria-label="Main navigation">
+          {navigation.map((item) => (
             <button
-              key={item}
-              aria-current={page === item ? 'page' : undefined}
-              onClick={() => setPage(item)}
+              className="nav-item"
+              key={item.page}
+              aria-current={page === item.page ? 'page' : undefined}
+              onClick={() => setPage(item.page)}
+              title={`${item.label} (Ctrl+${item.shortcut})`}
             >
-              {item}
+              <Icon name={item.icon} />
+              <span>{item.label}</span>
+              <kbd>{item.shortcut}</kbd>
             </button>
-          )
-        )}
-      </nav>
-      {page === 'Dashboard' && (
-        <section>
-          <h2>Focus session</h2>
-          <p>{activeSession ? `Active: ${activeSession}` : 'No active local session.'}</p>
-          <button
-            disabled={Boolean(activeSession)}
-            onClick={() =>
-              void window.focuslog
-                .startFocusSession()
-                .then((session) => setActiveSession(session.name))
-            }
-          >
-            Start focus session
-          </button>
-          <button
-            disabled={!activeSession}
-            onClick={() =>
-              void window.focuslog.stopFocusSession().then(() => setActiveSession(null))
-            }
-          >
-            Stop session
-          </button>
-          <p>
-            Reminders open in an always-on-top, keyboard-accessible window and are completed there.
-          </p>
-        </section>
-      )}
-      {page === 'History' && (
-        <section>
-          <h2>History timeline</h2>
-          <input
-            aria-label="Search history"
-            placeholder="Search local entries"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <div className="report-controls" aria-label="History filters">
-            <label>
-              Tag
-              <select value={tagId} onChange={(event) => setTagId(event.target.value)}>
-                <option value="">All tags</option>
-                {searchFilters.tags.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Category
-              <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-                <option value="">All categories</option>
-                {searchFilters.categories.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Focus session
-              <select value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-                <option value="">All sessions</option>
-                {searchFilters.sessions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {history.length === 0 ? (
-            <p>No matching local entries.</p>
-          ) : (
-            <ol>
-              {history.map((entry) => (
-                <li key={entry.id}>
-                  <time dateTime={entry.submittedAt}>
-                    {new Date(entry.submittedAt).toLocaleString()}
-                  </time>
-                  : {entry.body}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      )}
-      {page === 'Reports' && (
-        <section>
-          <h2>Daily report {report?.day ?? ''}</h2>
-          <div className="report-controls">
-            <label>
-              Report date
-              <input
-                type="date"
-                value={reportDay}
-                onChange={(event) => setReportDay(event.target.value)}
-              />
-            </label>
-            <label>
-              IANA report timezone
-              <input
-                value={reportTimezone}
-                onChange={(event) => setReportTimezone(event.target.value)}
-                placeholder="Europe/Warsaw"
-              />
-            </label>
-          </div>
-          <p>
-            Times are assigned to {report?.timezoneId ?? reportTimezone}. This local day contains{' '}
-            {report?.dayDurationMinutes ?? 1440} minutes.
-          </p>
-          {reportError && <p role="alert">{reportError}</p>}
-          <dl>
-            <dt>Completed intervals</dt>
-            <dd>{report?.completedIntervals ?? 0}</dd>
-            <dt>Missed intervals</dt>
-            <dd>{report?.missedIntervals ?? 0}</dd>
-            <dt>Total tracked time</dt>
-            <dd>{report?.totalTrackedMinutes ?? 0} minutes</dd>
-            <dt>Focus score</dt>
-            <dd>{report?.focusScore ?? 0}%</dd>
-          </dl>
-          <h3>Categories</h3>
-          <p>
-            {report?.categories
-              .map((category) => `${category.name}: ${category.count}`)
-              .join(', ') || 'No categorized check-ins.'}
-          </p>
-          <h3>Timeline</h3>
-          {report?.timeline.length ? (
-            <ol>
-              {report.timeline.map((entry) => (
-                <li key={entry.id}>
-                  <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
-                  {' · '}
-                  <strong>{entry.title}</strong>: {entry.detail}
-                  {entry.originalTimezoneId && (
-                    <small> (recorded in {entry.originalTimezoneId})</small>
-                  )}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p>No events recorded.</p>
-          )}
-          <h3>Reminder states</h3>
-          <p>
-            {report?.occurrenceStates
-              .map((item) => `${item.state.toLowerCase()}: ${item.count}`)
-              .join(', ') || 'No reminder occurrences.'}
-          </p>
-          <h3>Productivity trends</h3>
-          <p>
-            Last 7 days: {report?.trends.weekly ?? 0}; last 30 days: {report?.trends.monthly ?? 0};
-            last year: {report?.trends.yearly ?? 0} check-ins.
-          </p>
-        </section>
-      )}
-      {page === 'Heatmap' && (
-        <section>
-          <h2>Yearly heatmap</h2>
-          <div className="report-controls">
-            <label>
-              Calendar year
-              <input
-                type="number"
-                min="1970"
-                max="9998"
-                value={reportYear}
-                onChange={(event) => setReportYear(Number(event.target.value))}
-              />
-            </label>
-            <label>
-              IANA report timezone
-              <input
-                value={reportTimezone}
-                onChange={(event) => setReportTimezone(event.target.value)}
-              />
-            </label>
-          </div>
-          <p>{heatmapData?.metricDescription}</p>
-          {reportError && <p role="alert">{reportError}</p>}
-          <div
-            aria-label={`${reportYear} activity heatmap in ${reportTimezone}`}
-            className="heatmap-scroll"
-          >
-            <div className="heatmap">
-              {Array.from(
-                { length: new Date(Date.UTC(reportYear, 0, 1)).getUTCDay() },
-                (_, index) => (
-                  <span className="heatmap-placeholder" aria-hidden="true" key={`pad-${index}`} />
-                )
-              )}
-              {heatmapData?.days.map((entry) => (
-                <button
-                  key={entry.day}
-                  aria-label={`${entry.day}: ${entry.value} check-ins, intensity ${entry.intensity} of 4, report timezone ${reportTimezone}`}
-                  title={`${entry.day}: ${entry.value} check-ins`}
-                  data-level={entry.intensity}
-                  onClick={() => {
-                    setSelectedDay(entry.day);
-                    void window.focuslog
-                      .dayLog({ day: entry.day, timezoneId: reportTimezone })
-                      .then(setSelectedDayLog);
-                  }}
-                >
-                  <span className="visually-hidden">{entry.value}</span>
-                </button>
-              ))}
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <div className={`sync-pill ${status?.offline ? 'offline' : 'online'}`}>
+            <span aria-hidden="true" />
+            <div>
+              <strong>{syncLabel}</strong>
+              <small>
+                {status?.lastSynchronizedAt
+                  ? `Updated ${new Date(status.lastSynchronizedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}`
+                  : 'Local data is protected'}
+              </small>
             </div>
           </div>
-          <p className="heatmap-alternative">
-            {heatmapData?.days
-              .filter((entry) => entry.value > 0)
-              .map((entry) => `${entry.day}: ${entry.value}`)
-              .join('; ') || `No activity in ${reportYear}.`}
-          </p>
-          {selectedDay && (
-            <>
-              <h3>{selectedDay} complete log</h3>
-              {selectedDayLog.length ? (
-                <ol>
-                  {selectedDayLog.map((entry) => (
-                    <li key={entry.id}>
-                      <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
-                      {' · '}
-                      <strong>{entry.title}</strong>: {entry.detail}
-                    </li>
-                  ))}
-                </ol>
+          <button
+            className="icon-button"
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+          </button>
+        </div>
+      </aside>
+
+      <main className="content" aria-label={navDescription}>
+        <div className="mobile-topbar">
+          <div className="brand">FocusLog</div>
+          <button
+            className="icon-button"
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+          </button>
+        </div>
+
+        {page === 'Dashboard' && (
+          <div className="page dashboard-page">
+            <PageTitle
+              eyebrow={new Intl.DateTimeFormat(undefined, {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric'
+              }).format(new Date())}
+              title="Make the next interval count."
+              description="A calm view of your current focus session and today’s progress."
+            />
+
+            <section className="hero-card">
+              <div>
+                <span className="section-label">Current session</span>
+                <h2>{summary?.activeSession?.name ?? 'Ready when you are'}</h2>
+                <p>
+                  {summary?.activeSession
+                    ? summary.activeSession.status === 'PAUSED'
+                      ? 'Paused — your next reminder will be scheduled when you resume.'
+                      : `In focus for ${sessionElapsed}`
+                    : 'Start a session to schedule local, offline-ready check-ins.'}
+                </p>
+              </div>
+              <div className="hero-timer" aria-live="polite">
+                <span>Next reminder</span>
+                <strong>{nextReminderText}</strong>
+                <small>
+                  {summary?.activeSession
+                    ? `${summary.reminderIntervalMinutes} minute interval`
+                    : 'No active session'}
+                </small>
+              </div>
+            </section>
+
+            <section className="metric-grid" aria-label="Today’s focus summary">
+              <article className="metric-card">
+                <span>Completion</span>
+                <strong>{summary?.todayCompletionPercentage ?? 0}%</strong>
+                <div className="progress-track">
+                  <span style={{ width: `${summary?.todayCompletionPercentage ?? 0}%` }} />
+                </div>
+              </article>
+              <article className="metric-card">
+                <span>Completed</span>
+                <strong>{summary?.completedToday ?? 0}</strong>
+                <small>check-ins today</small>
+              </article>
+              <article className="metric-card">
+                <span>Missed</span>
+                <strong>{summary?.missedToday ?? 0}</strong>
+                <small>intervals today</small>
+              </article>
+              <article className="metric-card">
+                <span>Current interval</span>
+                <strong>{summary?.reminderIntervalMinutes ?? 15}</strong>
+                <small>minutes</small>
+              </article>
+            </section>
+
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="section-label">Quick actions</span>
+                  <h2>Stay in flow</h2>
+                </div>
+                <span className="keyboard-hint">Ctrl+N for a manual entry</span>
+              </div>
+              <div className="action-grid">
+                {!summary?.activeSession && (
+                  <button
+                    className="action-tile primary"
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.startFocusSession(),
+                        'Focus session started.'
+                      )
+                    }
+                  >
+                    <Icon name="play" />
+                    <span>Start session</span>
+                  </button>
+                )}
+                {summary?.activeSession?.status === 'ACTIVE' && (
+                  <button
+                    className="action-tile"
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.pauseFocusSession(),
+                        'Focus session paused.'
+                      )
+                    }
+                  >
+                    <Icon name="pause" />
+                    <span>Pause session</span>
+                  </button>
+                )}
+                {summary?.activeSession?.status === 'PAUSED' && (
+                  <button
+                    className="action-tile primary"
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.resumeFocusSession(),
+                        'Focus session resumed.'
+                      )
+                    }
+                  >
+                    <Icon name="play" />
+                    <span>Resume session</span>
+                  </button>
+                )}
+                {summary?.activeSession && (
+                  <button
+                    className="action-tile"
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.stopFocusSession(),
+                        'Focus session completed.'
+                      )
+                    }
+                  >
+                    <Icon name="stop" />
+                    <span>Stop session</span>
+                  </button>
+                )}
+                <button className="action-tile" onClick={() => setManualOpen(true)}>
+                  <Icon name="plus" />
+                  <span>Manual entry</span>
+                </button>
+                <button className="action-tile" onClick={() => setPage('History')}>
+                  <Icon name="history" />
+                  <span>Open history</span>
+                </button>
+                <button className="action-tile" onClick={() => setPage('Reports')}>
+                  <Icon name="reports" />
+                  <span>Daily report</span>
+                </button>
+                <button className="action-tile" onClick={() => setPage('Calendar')}>
+                  <Icon name="calendar" />
+                  <span>Year calendar</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {page === 'History' && (
+          <div className="page">
+            <PageTitle
+              eyebrow="Your record"
+              title="History"
+              description="Search every local check-in. Results are ranked and available offline."
+            />
+            <section className="panel">
+              <div className="search-field">
+                <Icon name="search" />
+                <input
+                  ref={searchRef}
+                  aria-label="Search history"
+                  placeholder="Search check-ins…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <kbd>Ctrl K</kbd>
+              </div>
+              <div className="filter-row" aria-label="History filters">
+                <label>
+                  <span>Tag</span>
+                  <select value={tagId} onChange={(event) => setTagId(event.target.value)}>
+                    <option value="">All tags</option>
+                    {searchFilters.tags.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select
+                    value={categoryId}
+                    onChange={(event) => setCategoryId(event.target.value)}
+                  >
+                    <option value="">All categories</option>
+                    {searchFilters.categories.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Session</span>
+                  <select value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+                    <option value="">All sessions</option>
+                    {searchFilters.sessions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+            <section className="timeline panel">
+              {history.length === 0 ? (
+                <EmptyState>No matching entries yet.</EmptyState>
               ) : (
-                <p>No check-ins recorded.</p>
+                history.map((entry) => (
+                  <article className="timeline-entry" key={entry.id}>
+                    <span className="timeline-dot" />
+                    <time dateTime={entry.submittedAt}>
+                      {new Date(entry.submittedAt).toLocaleString([], {
+                        dateStyle: 'medium',
+                        timeStyle: 'short'
+                      })}
+                    </time>
+                    <p>{entry.body}</p>
+                  </article>
+                ))
               )}
+            </section>
+          </div>
+        )}
+
+        {page === 'Reports' && (
+          <div className="page">
+            <PageTitle
+              eyebrow="Daily reflection"
+              title="Reports"
+              description="Completion, response quality, activity patterns, and your full day timeline."
+            />
+            <section className="panel controls-panel">
+              <label>
+                <span>Report date</span>
+                <input
+                  type="date"
+                  value={reportDay}
+                  onChange={(event) => setReportDay(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Timezone</span>
+                <input
+                  value={reportTimezone}
+                  onChange={(event) => setReportTimezone(event.target.value)}
+                  placeholder="Europe/Warsaw"
+                />
+              </label>
+              <span className="day-length">
+                {report?.dayDurationMinutes ?? 1440} minute local day
+              </span>
+            </section>
+            {reportError && (
+              <p className="alert" role="alert">
+                {reportError}
+              </p>
+            )}
+            <section className="metric-grid report-metrics">
+              <article className="metric-card accent">
+                <span>Focus score</span>
+                <strong>{report?.focusScore ?? 0}%</strong>
+                <small>{report?.completedIntervals ?? 0} completed intervals</small>
+              </article>
+              <article className="metric-card">
+                <span>Average response</span>
+                <strong>{report?.averageResponseDelayMinutes ?? 0}</strong>
+                <small>minutes after due</small>
+              </article>
+              <article className="metric-card">
+                <span>Longest streak</span>
+                <strong>{report?.longestFocusStreak ?? 0}</strong>
+                <small>completed reminders</small>
+              </article>
+              <article className="metric-card">
+                <span>Tracked time</span>
+                <strong>{report?.totalTrackedMinutes ?? 0}</strong>
+                <small>minutes</small>
+              </article>
+            </section>
+            <div className="two-column">
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <span className="section-label">Breakdown</span>
+                    <h2>Categories</h2>
+                  </div>
+                </div>
+                {report?.categories.length ? (
+                  <div className="category-list">
+                    {report.categories.map((category) => {
+                      const max = Math.max(...report.categories.map((item) => item.count), 1);
+                      return (
+                        <div key={category.name}>
+                          <span>{category.name}</span>
+                          <div>
+                            <i style={{ width: `${(category.count / max) * 100}%` }} />
+                          </div>
+                          <strong>{category.count}</strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState>No categorized entries.</EmptyState>
+                )}
+              </section>
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <span className="section-label">Language</span>
+                    <h2>Activity cloud</h2>
+                  </div>
+                </div>
+                <p className="common-activity">
+                  {report?.mostCommonActivity ?? 'No common activity yet.'}
+                </p>
+                <div className="word-cloud" aria-label="Most used activity words">
+                  {report?.wordCloud.map((item, index) => (
+                    <span
+                      key={item.word}
+                      style={{ fontSize: `${1 + Math.max(0, 5 - index) * 0.08}rem` }}
+                    >
+                      {item.word}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <section className="panel timeline">
+              <div className="panel-heading">
+                <div>
+                  <span className="section-label">Complete log</span>
+                  <h2>{report?.day ?? reportDay}</h2>
+                </div>
+                <span>
+                  {report?.missedIntervals ?? 0} missed · {report?.completionPercentage ?? 0}%
+                  complete
+                </span>
+              </div>
+              {report?.timeline.length ? (
+                report.timeline.map((entry) => (
+                  <article className="timeline-entry" key={entry.id}>
+                    <span className="timeline-dot" />
+                    <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <p>{entry.detail}</p>
+                      {entry.originalTimezoneId && (
+                        <small>Recorded in {entry.originalTimezoneId}</small>
+                      )}
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <EmptyState>No events recorded.</EmptyState>
+              )}
+            </section>
+            <section className="panel trend-strip">
+              <span>
+                7 days <strong>{report?.trends.weekly ?? 0}</strong>
+              </span>
+              <span>
+                30 days <strong>{report?.trends.monthly ?? 0}</strong>
+              </span>
+              <span>
+                365 days <strong>{report?.trends.yearly ?? 0}</strong>
+              </span>
+            </section>
+          </div>
+        )}
+
+        {page === 'Calendar' && (
+          <div className="page">
+            <PageTitle
+              eyebrow="Long-term rhythm"
+              title={`${reportYear} activity`}
+              description="Every day, one year, with intensity based on completed check-ins."
+            />
+            <section className="panel controls-panel">
+              <label>
+                <span>Calendar year</span>
+                <input
+                  type="number"
+                  min="1970"
+                  max="9998"
+                  value={reportYear}
+                  onChange={(event) => setReportYear(Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span>Timezone</span>
+                <input
+                  value={reportTimezone}
+                  onChange={(event) => setReportTimezone(event.target.value)}
+                />
+              </label>
+              <span className="legend">
+                Less
+                {[0, 1, 2, 3, 4].map((level) => (
+                  <i key={level} data-level={level} />
+                ))}
+                More
+              </span>
+            </section>
+            {reportError && (
+              <p className="alert" role="alert">
+                {reportError}
+              </p>
+            )}
+            <section className="panel heatmap-panel">
+              <p>{heatmapData?.metricDescription}</p>
+              <div
+                aria-label={`${reportYear} activity heatmap in ${reportTimezone}`}
+                className="heatmap-scroll"
+              >
+                <div className="heatmap">
+                  {Array.from(
+                    { length: new Date(Date.UTC(reportYear, 0, 1)).getUTCDay() },
+                    (_, index) => (
+                      <span
+                        className="heatmap-placeholder"
+                        aria-hidden="true"
+                        key={`pad-${index}`}
+                      />
+                    )
+                  )}
+                  {heatmapData?.days.map((entry) => (
+                    <button
+                      key={entry.day}
+                      aria-label={`${entry.day}: ${entry.value} check-ins, intensity ${entry.intensity} of 4`}
+                      title={`${entry.day}: ${entry.value} check-ins`}
+                      data-level={entry.intensity}
+                      data-selected={selectedDay === entry.day || undefined}
+                      onClick={() => {
+                        setSelectedDay(entry.day);
+                        void window.focuslog
+                          .dayLog({ day: entry.day, timezoneId: reportTimezone })
+                          .then(setSelectedDayLog);
+                      }}
+                    >
+                      <span className="visually-hidden">{entry.value}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            {selectedDay && (
+              <section className="panel timeline day-detail">
+                <div className="panel-heading">
+                  <div>
+                    <span className="section-label">Complete day log</span>
+                    <h2>{selectedDay}</h2>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setReportDay(selectedDay);
+                      setPage('Reports');
+                    }}
+                  >
+                    Open report
+                  </button>
+                </div>
+                {selectedDayLog.length ? (
+                  selectedDayLog.map((entry) => (
+                    <article className="timeline-entry" key={entry.id}>
+                      <span className="timeline-dot" />
+                      <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
+                      <div>
+                        <strong>{entry.title}</strong>
+                        <p>{entry.detail}</p>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <EmptyState>No activity recorded.</EmptyState>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+
+        {page === 'Settings' && (
+          <div className="page settings-page">
+            <PageTitle
+              eyebrow="Personalize"
+              title="Settings"
+              description="Tune your reminder rhythm, appearance, startup, and private data controls."
+            />
+            <section className="panel setting-section">
+              <div className="setting-copy">
+                <span className="section-label">Reminder rhythm</span>
+                <h2>Check-in interval</h2>
+                <p>Changes reschedule future reminders immediately and remain available offline.</p>
+              </div>
+              <div className="interval-grid">
+                {preferences?.choices.map((minutes) => (
+                  <button
+                    key={minutes}
+                    className={
+                      preferences.intervalMinutes === minutes ? 'interval active' : 'interval'
+                    }
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.setReminderInterval(minutes),
+                        `Reminder interval changed to ${minutes} minutes.`
+                      )
+                    }
+                  >
+                    {minutes}
+                    <small>min</small>
+                  </button>
+                ))}
+              </div>
+              <div className="custom-interval">
+                <label>
+                  <span>Custom interval</span>
+                  <input
+                    type="number"
+                    min={preferences?.minimum ?? 5}
+                    max={preferences?.maximum ?? 240}
+                    value={customInterval}
+                    onChange={(event) => setCustomInterval(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  onClick={() =>
+                    void runAction(
+                      () => window.focuslog.setReminderInterval(Number(customInterval)),
+                      `Reminder interval changed to ${customInterval} minutes.`
+                    )
+                  }
+                >
+                  Save custom interval
+                </button>
+                <small>Any whole number from 5 to 240 minutes.</small>
+              </div>
+            </section>
+
+            <section className="panel setting-row">
+              <div>
+                <h2>Start with Windows</h2>
+                <p>Launch quietly at sign-in so reminder recovery is always ready.</p>
+              </div>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={startup}
+                  onChange={async (event) =>
+                    setStartup(await window.focuslog.setStartup(event.target.checked))
+                  }
+                />
+                <span />
+                <span className="visually-hidden">Start FocusLog when Windows starts</span>
+              </label>
+            </section>
+
+            <section className="panel setting-section">
+              <div className="setting-copy">
+                <span className="section-label">Private by design</span>
+                <h2>Encrypted backup and export</h2>
+                <p>
+                  Keep the recovery key separately. The service cannot recover encrypted archives.
+                </p>
+              </div>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  onClick={async () => {
+                    const result = await window.focuslog.createBackup('BACKUP');
+                    if (result) {
+                      setRecoveryKey(result.recoveryKey);
+                      setSecurityMessage(`Encrypted backup written to ${result.path}`);
+                    }
+                  }}
+                >
+                  Create backup
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={async () => {
+                    const result = await window.focuslog.createBackup('EXPORT');
+                    if (result) {
+                      setRecoveryKey(result.recoveryKey);
+                      setSecurityMessage(`Encrypted export written to ${result.path}`);
+                    }
+                  }}
+                >
+                  Export data
+                </button>
+              </div>
+              <label className="stacked-field">
+                <span>Recovery key</span>
+                <input
+                  value={recoveryKey}
+                  onChange={(event) => setRecoveryKey(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
               <button
-                onClick={() => {
-                  setReportDay(selectedDay);
-                  setPage('Reports');
-                  void window.focuslog
-                    .report({ day: selectedDay, timezoneId: reportTimezone })
-                    .then(setReport);
+                className="secondary-button fit"
+                disabled={!recoveryKey.trim()}
+                onClick={async () => {
+                  if (!confirm('Restore replaces all local FocusLog data. Continue?')) return;
+                  const result = await window.focuslog.restoreBackup(recoveryKey);
+                  if (result)
+                    setSecurityMessage(`Restored ${result.kind.toLowerCase()} successfully.`);
                 }}
               >
-                View daily report
+                Restore or import
               </button>
-            </>
-          )}
-        </section>
-      )}
-      {page === 'Pair device' && (
-        <section>
-          <h2>Pair a trusted device</h2>
-          <p>
-            Pairing requires approval from this owner device. Share the short-lived code with the
-            trusted device.
-          </p>
-          <button
-            onClick={() =>
-              void window.focuslog
-                .bootstrapDevice()
-                .then(() => window.alert('Owner device registered.'))
-                .catch((error) =>
-                  window.alert(error instanceof Error ? error.message : String(error))
-                )
-            }
-          >
-            Register this owner device
-          </button>
-          <button
-            onClick={() =>
-              void window.focuslog
-                .createPairing()
-                .then(setPairing)
-                .catch((error) =>
-                  window.alert(error instanceof Error ? error.message : String(error))
-                )
-            }
-          >
-            Create pairing code
-          </button>
-          {pairing && (
-            <p role="status">
-              Code: <strong>{pairing.code}</strong>. Expires{' '}
-              {new Date(pairing.expiresAt).toLocaleTimeString()}.
-            </p>
-          )}
-          <button
-            onClick={() =>
-              void window.focuslog
-                .pendingPairings()
-                .then((requests) =>
-                  Promise.all(requests.map((request) => window.focuslog.approvePairing(request.id)))
-                )
-            }
-          >
-            Approve pending pairing requests
-          </button>
-        </section>
-      )}
-      {page === 'Settings' && (
-        <section>
-          <h2>Settings</h2>
-          <label>
-            <input
-              type="checkbox"
-              checked={startup}
-              onChange={async (event) =>
-                setStartup(await window.focuslog.setStartup(event.target.checked))
-              }
-            />{' '}
-            Start FocusLog when Windows starts
-          </label>
-          <p>
-            Data mode: local-first. Offline changes remain queued until synchronization is
-            available.
-          </p>
-          <h3>Encrypted backup and export</h3>
-          <p>
-            Keep the recovery key separately from the archive. It is required after reinstall and
-            cannot be recovered by the service.
-          </p>
-          <div>
-            <button
-              type="button"
-              onClick={async () => {
-                const result = await window.focuslog.createBackup('BACKUP');
-                if (result) {
-                  setRecoveryKey(result.recoveryKey);
-                  setSecurityMessage(`Encrypted backup written to ${result.path}`);
-                }
-              }}
-            >
-              Create encrypted backup
-            </button>{' '}
-            <button
-              type="button"
-              onClick={async () => {
-                const result = await window.focuslog.createBackup('EXPORT');
-                if (result) {
-                  setRecoveryKey(result.recoveryKey);
-                  setSecurityMessage(`Encrypted export written to ${result.path}`);
-                }
-              }}
-            >
-              Export encrypted data
-            </button>
+              <p aria-live="polite">{securityMessage}</p>
+            </section>
+
+            <section className="panel danger-zone">
+              <div>
+                <h2>Permanent deletion</h2>
+                <p>
+                  Destroys local encryption keys and connected owner data. This cannot be undone.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const confirmation = prompt(
+                    'Type DELETE ALL FOCUSLOG DATA to permanently delete all data.'
+                  );
+                  if (confirmation !== 'DELETE ALL FOCUSLOG DATA') return;
+                  await window.focuslog.permanentlyDelete(confirmation);
+                }}
+              >
+                Delete all data
+              </button>
+            </section>
           </div>
-          <label>
-            Recovery key
-            <input
-              value={recoveryKey}
-              onChange={(event) => setRecoveryKey(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
+        )}
+
+        {page === 'Pair device' && (
+          <div className="page">
+            <PageTitle
+              eyebrow="Trusted devices"
+              title="Pair a device"
+              description="Approve another device without accounts, passwords, or shared private keys."
             />
-          </label>{' '}
-          <button
-            type="button"
-            disabled={!recoveryKey.trim()}
-            onClick={async () => {
-              if (!confirm('Restore replaces all local FocusLog data. Continue?')) return;
-              const result = await window.focuslog.restoreBackup(recoveryKey);
-              if (result) setSecurityMessage(`Restored ${result.kind.toLowerCase()} successfully.`);
-            }}
-          >
-            Restore / import
-          </button>
-          <h3>Permanent deletion</h3>
-          <p>
-            This destroys local encryption keys and, when connected, permanently deletes the owner
-            data on the backend. This cannot be undone.
-          </p>
-          <button
-            type="button"
-            onClick={async () => {
-              const confirmation = prompt(
-                'Type DELETE ALL FOCUSLOG DATA to permanently delete all data.'
-              );
-              if (confirmation !== 'DELETE ALL FOCUSLOG DATA') return;
-              await window.focuslog.permanentlyDelete(confirmation);
-            }}
-          >
-            Permanently delete all data
-          </button>
-          <p aria-live="polite">{securityMessage}</p>
-        </section>
+            <section className="pair-card">
+              <div className="pair-visual" aria-hidden="true">
+                <Icon name="devices" size={56} />
+              </div>
+              <div>
+                <h2>Secure, short-lived pairing</h2>
+                <p>
+                  Register this owner device, create a temporary code, then approve the request from
+                  your Android device.
+                </p>
+                <div className="button-row">
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      void runAction(
+                        () => window.focuslog.bootstrapDevice(),
+                        'This owner device is registered.'
+                      )
+                    }
+                  >
+                    Register this device
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={async () => {
+                      try {
+                        setPairing(await window.focuslog.createPairing());
+                      } catch (error) {
+                        setNotice(error instanceof Error ? error.message : String(error));
+                      }
+                    }}
+                  >
+                    Create pairing code
+                  </button>
+                </div>
+              </div>
+              {pairing && (
+                <div className="pair-code" role="status">
+                  <span>Pairing code</span>
+                  <strong>{pairing.code}</strong>
+                  <small>Expires {new Date(pairing.expiresAt).toLocaleTimeString()}</small>
+                </div>
+              )}
+              <button
+                className="secondary-button fit"
+                onClick={() =>
+                  void runAction(async () => {
+                    const requests = await window.focuslog.pendingPairings();
+                    if (requests.length === 0) throw new Error('No pending pairing requests.');
+                    await Promise.all(
+                      requests.map((request) => window.focuslog.approvePairing(request.id))
+                    );
+                  }, 'Pending pairing request approved.')
+                }
+              >
+                Approve pending request
+              </button>
+            </section>
+          </div>
+        )}
+      </main>
+
+      {manualOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+            <span className="section-label">Quick capture</span>
+            <h2 id="manual-title">Write a manual entry</h2>
+            <p>Capture useful context without interrupting your current reminder schedule.</p>
+            <textarea
+              autoFocus
+              value={manualText}
+              onChange={(event) => setManualText(event.target.value)}
+              placeholder="What are you working on?"
+            />
+            <div className="button-row end">
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setManualOpen(false);
+                  setManualText('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                disabled={!manualText.trim()}
+                onClick={() =>
+                  void runAction(async () => {
+                    await window.focuslog.createManualEntry(manualText);
+                    setManualOpen(false);
+                    setManualText('');
+                  }, 'Manual entry saved locally.')
+                }
+              >
+                Save entry
+              </button>
+            </div>
+          </section>
+        </div>
       )}
-    </main>
+
+      {notice && (
+        <button className="toast" onClick={() => setNotice('')} aria-live="polite">
+          <Icon name="check" />
+          <span>{notice}</span>
+        </button>
+      )}
+    </div>
   );
 }

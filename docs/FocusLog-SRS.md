@@ -138,7 +138,7 @@ The terms **must**, **must not**, **should**, **should not**, and **may** are no
 - **Conflict:** A condition in which different devices modify the same logical record from different base versions before synchronization converges.
 - **Tombstone:** A durable deletion marker used to synchronize deletion without unintentionally recreating deleted data.
 - **Local-only mode:** An approved operating mode in which data remains on one device and backend synchronization is disabled.
-- **Strict Reminder Mode:** An optional reminder policy that strongly discourages ordinary dismissal while preserving emergency escape, accessibility, and operating-system control.
+- **Strict Reminder Mode:** The production reminder policy that requires a valid response before in-application dismissal while preserving accessibility and operating-system control.
 
 ## 1.6 Requirement Identification and Traceability
 
@@ -247,21 +247,31 @@ Standard Reminder Mode should provide:
 
 ### 2.3.2 Strict Reminder Mode
 
-Strict Reminder Mode may strongly discourage ordinary dismissal. When enabled by the owner:
+Strict Reminder Mode requires a valid response before the application dismisses
+the reminder:
 
-- The desktop overlay may remain visible until the reminder is completed, snoozed, skipped under an allowed policy, or emergency-dismissed.
-- The overlay may omit a conventional close button.
-- Accidental dismissal actions may be intercepted when technically and ethically appropriate.
+- **Windows:** The reminder overlay must remain visible until a valid response is
+  submitted. There must be no UI control to dismiss, minimize, maximize, or close
+  the overlay. The application should automatically regain focus if the overlay
+  loses focus.
+- **Android:** The reminder screen should remain the active foreground interface
+  until a valid response is submitted, using the strongest platform-supported
+  mechanisms (full-screen intent, foreground service, accessibility service if
+  enabled, and overlay permissions where appropriate). If the user leaves the
+  reminder, the application should immediately prompt again when permitted by the
+  operating system. The implementation must not rely on unsupported exploits or
+  attempt to bypass Android security restrictions.
 - A configurable minimum response length may be enforced. The default strict-mode minimum is 20 Unicode characters after trimming surrounding whitespace.
 - Submission must not close the overlay until the entry has been durably stored locally.
 - A backend outage must not prevent successful local submission.
-- Emergency dismissal must remain possible through a documented, accessible mechanism.
 - Operating-system controls, security screens, emergency communication, assistive technologies, and system-level termination must never be blocked.
-- Emergency dismissal and policy-based skipping must be recorded honestly rather than represented as completed check-ins.
+- Any OS-level interruption must preserve unfinished text and must never be represented as a completed check-in.
 
 On Android, the application must use only platform-approved notification, foreground-service, alarm, and full-screen intent mechanisms. It must not bypass Android security restrictions, device-owner policies, lock-screen protections, or user notification controls.
 
-The detailed reminder chapter must define the final state machine, accessibility behavior, snooze rules, skip rules, emergency escape, retry policy, sleep recovery, and device-coordination behavior.
+The detailed reminder chapter must define the final state machine, accessibility
+behavior, retry policy, sleep recovery, OS-interruption recovery, and
+device-coordination behavior.
 
 ## 2.4 Product Philosophy
 
@@ -1335,12 +1345,20 @@ changes without losing or duplicating an occurrence.
 Acceptance: **[ACC-032]** recovery evaluates persisted UTC instants and policy,
 presents still-actionable reminders, and marks expired windows missed exactly once.
 
-**[REM-004] Platform presentation.** Windows must use an accessible always-on-top
-overlay with an emergency escape and preserved draft. Android must use supported
-notification, WorkManager, and AlarmManager behavior without bypassing OS control.
+**[REM-004] Platform presentation.** On Windows, the accessible, always-on-top
+full-screen overlay must remain visible until a valid response is durably stored,
+must expose no UI control to dismiss, minimize, maximize, or close it, must preserve
+the draft, and should regain focus if focus is lost. On Android, the reminder must
+remain the active foreground interface using the strongest supported mechanisms
+(full-screen intent, foreground service, accessibility service if independently
+enabled for an appropriate user-facing purpose, and overlay permission where
+appropriate). It must re-prompt after the owner leaves whenever Android permits,
+and must never use an exploit or bypass Android security controls.
 
-Acceptance: **[ACC-033]** ordinary dismissal cannot falsely complete a reminder,
-and OS termination or battery restrictions degrade transparently and recover.
+Acceptance: **[ACC-033]** neither platform exposes an in-application reminder
+dismissal control; a reminder closes only after a locally durable response of at
+least 20 trimmed Unicode characters. OS termination or battery restrictions do
+not falsely complete it, preserve unfinished text, and recover transparently.
 
 **[REM-005] Multi-device coordination.** Connected trusted devices must claim a
 reminder occurrence through the authenticated gateway so one eligible foreground

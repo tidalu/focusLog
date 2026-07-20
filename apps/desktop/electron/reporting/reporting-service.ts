@@ -27,6 +27,11 @@ export type DailyReport = {
   missedIntervals: number;
   totalTrackedMinutes: number;
   focusScore: number;
+  completionPercentage: number;
+  averageResponseDelayMinutes: number;
+  longestFocusStreak: number;
+  mostCommonActivity: string | null;
+  wordCloud: Array<{ word: string; count: number }>;
   categories: Array<{ name: string; count: number }>;
   occurrenceStates: Array<{ state: string; count: number }>;
   timeline: TimelineEntry[];
@@ -51,6 +56,31 @@ type OccurrenceRow = {
 };
 
 const effectiveOccurrenceTime = (row: OccurrenceRow): string => row.resolvedAt ?? row.scheduledAt;
+const wordPattern = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu;
+const ignoredWords = new Set([
+  'about',
+  'after',
+  'again',
+  'also',
+  'and',
+  'been',
+  'being',
+  'completed',
+  'during',
+  'focus',
+  'from',
+  'have',
+  'into',
+  'just',
+  'that',
+  'the',
+  'their',
+  'this',
+  'was',
+  'were',
+  'what',
+  'with'
+]);
 
 export class ReportingService {
   constructor(
@@ -77,6 +107,34 @@ export class ReportingService {
     const completedIntervals = occurrences.filter((item) => item.state === 'COMPLETED').length;
     const missedIntervals = occurrences.filter((item) => item.state === 'MISSED').length;
     const totalIntervals = completedIntervals + missedIntervals;
+    const completionPercentage =
+      totalIntervals === 0 ? 0 : Math.round((completedIntervals / totalIntervals) * 100);
+    const completionDelays = occurrences
+      .filter(
+        (item): item is OccurrenceRow & { resolvedAt: string } =>
+          item.state === 'COMPLETED' && Boolean(item.resolvedAt)
+      )
+      .map((item) =>
+        Math.max(0, new Date(item.resolvedAt).getTime() - new Date(item.scheduledAt).getTime())
+      );
+    const averageResponseDelayMinutes =
+      completionDelays.length === 0
+        ? 0
+        : Math.round(
+            completionDelays.reduce((total, delay) => total + delay, 0) /
+              completionDelays.length /
+              60_000
+          );
+    let runningStreak = 0;
+    let longestFocusStreak = 0;
+    for (const occurrence of occurrences) {
+      if (occurrence.state === 'COMPLETED') {
+        runningStreak += 1;
+        longestFocusStreak = Math.max(longestFocusStreak, runningStreak);
+      } else if (['MISSED', 'SKIPPED', 'EMERGENCY_DISMISSED'].includes(occurrence.state)) {
+        runningStreak = 0;
+      }
+    }
 
     const sessions = this.database
       .prepare(
@@ -128,9 +186,24 @@ export class ReportingService {
       category: string;
     }>;
     const categoryCounts = new Map<string, number>();
+    const activityCounts = new Map<string, number>();
+    const words = new Map<string, number>();
     for (const item of checkIns) {
       categoryCounts.set(item.category, (categoryCounts.get(item.category) ?? 0) + 1);
+      activityCounts.set(item.body, (activityCounts.get(item.body) ?? 0) + 1);
+      for (const match of item.body.toLocaleLowerCase().match(wordPattern) ?? []) {
+        if (match.length < 3 || ignoredWords.has(match)) continue;
+        words.set(match, (words.get(match) ?? 0) + 1);
+      }
     }
+    const mostCommonActivity =
+      Array.from(activityCounts).sort(
+        ([leftText, leftCount], [rightText, rightCount]) =>
+          rightCount - leftCount || leftText.localeCompare(rightText)
+      )[0]?.[0] ?? null;
+    const wordCloud = Array.from(words, ([word, count]) => ({ word, count }))
+      .sort((left, right) => right.count - left.count || left.word.localeCompare(right.word))
+      .slice(0, 16);
 
     const timeline: TimelineEntry[] = checkIns.map((item) => ({
       id: item.id,
@@ -262,8 +335,12 @@ export class ReportingService {
       completedIntervals,
       missedIntervals,
       totalTrackedMinutes,
-      focusScore:
-        totalIntervals === 0 ? 0 : Math.round((completedIntervals / totalIntervals) * 100),
+      focusScore: completionPercentage,
+      completionPercentage,
+      averageResponseDelayMinutes,
+      longestFocusStreak,
+      mostCommonActivity,
+      wordCloud,
       categories: Array.from(categoryCounts, ([name, count]) => ({ name, count })).sort(
         (left, right) => right.count - left.count || left.name.localeCompare(right.name)
       ),

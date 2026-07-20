@@ -3,7 +3,34 @@
 interface Window {
   focuslog: {
     platform: string;
-    getStatus(): Promise<{ offline: boolean; databaseReady: boolean; startupEnabled: boolean }>;
+    getStatus(): Promise<{
+      offline: boolean;
+      databaseReady: boolean;
+      startupEnabled: boolean;
+      queuedOperations: number;
+      lastSynchronizedAt?: string;
+      lastSynchronizationError?: string;
+    }>;
+    getDashboardSummary(): Promise<{
+      activeSession: {
+        id: string;
+        name: string;
+        status: 'ACTIVE' | 'PAUSED';
+        startedAt: string;
+      } | null;
+      nextReminder: { id: string; state: string; dueAt: string } | null;
+      reminderIntervalMinutes: number;
+      todayCompletionPercentage: number;
+      completedToday: number;
+      missedToday: number;
+    }>;
+    getReminderPreferences(): Promise<{
+      intervalMinutes: number;
+      choices: number[];
+      minimum: number;
+      maximum: number;
+    }>;
+    setReminderInterval(intervalMinutes: number): Promise<number>;
     getDeviceIdentity(): Promise<{
       ownerId: string;
       deviceId: string;
@@ -22,8 +49,13 @@ interface Window {
     completeReminder(occurrenceId: string, text: string): Promise<{ completed: boolean }>;
     snoozeReminder(occurrenceId: string, minutes: number): Promise<{ snoozed: boolean }>;
     emergencyDismissReminder(occurrenceId: string): Promise<{ dismissed: boolean }>;
-    startFocusSession(): Promise<{ id: string; name: string }>;
+    startFocusSession(): Promise<{ id: string; name: string; status: 'ACTIVE' }>;
+    pauseFocusSession(): Promise<{ id: string; status: 'PAUSED' } | null>;
+    resumeFocusSession(): Promise<{ id: string; status: 'ACTIVE' } | null>;
     stopFocusSession(): Promise<{ id: string } | null>;
+    createManualEntry(
+      text: string
+    ): Promise<{ checkInId: string; revisionId: string; operationId: string }>;
     history(filters: {
       query?: string;
       tagId?: string;
@@ -43,6 +75,11 @@ interface Window {
       missedIntervals: number;
       totalTrackedMinutes: number;
       focusScore: number;
+      completionPercentage: number;
+      averageResponseDelayMinutes: number;
+      longestFocusStreak: number;
+      mostCommonActivity: string | null;
+      wordCloud: Array<{ word: string; count: number }>;
       categories: Array<{ name: string; count: number }>;
       occurrenceStates: Array<{ state: string; count: number }>;
       timeline: Array<{

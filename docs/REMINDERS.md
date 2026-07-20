@@ -8,7 +8,14 @@ Implemented reminder architecture and mandatory completion rule. The production 
 
 Reminders must be noticeable, predictable, recoverable, accessible, and compatible with Windows and Android controls. They are locally scheduled and locally durable. A backend outage cannot prevent a valid local check-in from being saved.
 
-Standard mode provides visible entry, permitted snooze, permitted skip, and clear validation. Strict mode may remove ordinary dismissal, but it must always provide a documented accessible emergency dismissal and must never bypass operating-system controls, security screens, assistive technology, emergency communication, or platform notification controls.
+The production reminder uses strict completion. It exposes no application control
+to dismiss, snooze, skip, minimize, maximize, or close the active prompt. A
+reminder disappears only after a response of at least 20 trimmed Unicode
+characters has been durably stored locally. The implementation never blocks or
+bypasses operating-system controls, security screens, assistive technology,
+emergency communication, system termination, or platform notification controls.
+If the OS interrupts presentation, the draft remains durable and the reminder is
+presented again when the platform permits.
 
 ## Occurrence lifecycle
 
@@ -66,14 +73,22 @@ Every display uses the stable occurrence ID. Completion, snooze, skip, and dismi
 | Android/Flutter        | App workflow and local state                                                                              | UI never assumes background execution is perpetual                                                            |
 | Android/Kotlin adapter | Alarm scheduling, notification channels, permitted foreground service/full-screen presentation            | Use only Android-approved mechanisms; disclose battery/notification limitations and recover on next execution |
 
-## Accessibility and emergency escape
+## Accessibility and operating-system control
 
-Overlays must support keyboard navigation, visible focus, screen-reader labels, high-contrast modes, and scaling. Strict mode’s emergency dismissal must be discoverable, keyboard-accessible, screen-reader-accessible, and recorded honestly. It must not imitate a successful check-in.
+Overlays support keyboard entry, visible focus, screen-reader labels,
+high-contrast modes, and scaling. The production prompt has no in-application
+escape control. Windows security screens, assistive technology, emergency
+communication, task management, and system-level termination remain available.
+Android user controls and platform restrictions remain authoritative. Any
+interruption preserves the draft and never imitates a successful check-in.
 
 ## Production reminder policy
 
 1. Cadence is fixed from the focus-session start time. Completion, restart, and sleep do not drift the interval anchor.
-2. The default interval is 30 minutes and remains configurable from 1 to 1,440 minutes.
+2. The default interval is 15 minutes. Presets are 5, 10, 15, 20, 25, 30, 45,
+   60, 90, and 120 minutes; custom values are configurable from 5 to 240 minutes.
+   Changes immediately affect future reminders and persist across restart,
+   reboot, and synchronization.
 3. Allowed snoozes are 5, 10, and 15 minutes, with a maximum of three snoozes per occurrence.
 4. The default response window is 60 minutes. An occurrence that was never presented becomes `missed` when recovery finds it beyond that window. A presented occurrence remains available for an explicitly late completion unless its policy disables late completion.
 5. Recovery presents only the oldest actionable occurrence. Other overdue occurrences remain durable and do not create an overlay or notification storm.

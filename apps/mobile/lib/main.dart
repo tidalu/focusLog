@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
@@ -46,10 +47,52 @@ class FocusLogApp extends StatelessWidget {
   final ReminderScheduler scheduler;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'FocusLog',
-        theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-        home: FocusLogHome(repository: repository, scheduler: scheduler),
+  Widget build(BuildContext context) => DynamicColorBuilder(
+        builder: (lightDynamic, darkDynamic) {
+          const seed = Color(0xff5b5bd6);
+          ThemeData theme(ColorScheme colors) => ThemeData(
+                colorScheme: colors,
+                useMaterial3: true,
+                scaffoldBackgroundColor: colors.surface,
+                cardTheme: CardThemeData(
+                  elevation: 0,
+                  color: colors.surfaceContainerLow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    side: BorderSide(color: colors.outlineVariant),
+                  ),
+                ),
+                inputDecorationTheme: InputDecorationTheme(
+                  filled: true,
+                  fillColor: colors.surfaceContainerLow,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                filledButtonTheme: FilledButtonThemeData(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              );
+
+          return MaterialApp(
+            title: 'FocusLog',
+            debugShowCheckedModeBanner: false,
+            theme: theme(lightDynamic ??
+                ColorScheme.fromSeed(
+                    seedColor: seed, brightness: Brightness.light)),
+            darkTheme: theme(darkDynamic ??
+                ColorScheme.fromSeed(
+                    seedColor: seed, brightness: Brightness.dark)),
+            themeMode: ThemeMode.system,
+            home: FocusLogHome(repository: repository, scheduler: scheduler),
+          );
+        },
       );
 }
 
@@ -66,8 +109,8 @@ class FocusLogHome extends StatefulWidget {
 class _FocusLogHomeState extends State<FocusLogHome>
     with WidgetsBindingObserver {
   int _index = 0;
-  String _syncStatus = 'Offline-ready';
-  final _response = TextEditingController();
+  String _syncStatus = 'Offline ready';
+  bool _reminderVisible = false;
   StreamSubscription<String>? _notificationSubscription;
   FocusLogWebSocketClient? _websocket;
 
@@ -96,7 +139,6 @@ class _FocusLogHomeState extends State<FocusLogHome>
     WidgetsBinding.instance.removeObserver(this);
     final subscription = _notificationSubscription;
     if (subscription != null) unawaited(subscription.cancel());
-    _response.dispose();
     unawaited(_websocket?.stop());
     super.dispose();
   }
@@ -108,23 +150,46 @@ class _FocusLogHomeState extends State<FocusLogHome>
       unawaited(widget.scheduler.recoverAfterWake());
       unawaited(widget.repository
           .recoverOverdueReminders(reason: 'app-resume')
-          .then((_) {
-        if (mounted) setState(() {});
+          .then((_) async {
+        final reminder = await widget.repository.nextScheduledReminder();
+        if (reminder != null &&
+            (reminder.state == 'DUE' || reminder.state == 'PRESENTED')) {
+          await _openReminder(reminder.id);
+        } else if (mounted) {
+          setState(() {});
+        }
       }));
     }
   }
 
   Future<void> _openReminder(String occurrenceId) async {
+    if (_reminderVisible) return;
     await widget.repository.recoverOverdueReminders(reason: 'notification-tap');
     await widget.repository.presentReminder(occurrenceId);
     if (!mounted) return;
-    setState(() => _index = 0);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(showReminderCompletion(
-            context, widget.repository, widget.scheduler, occurrenceId));
-      }
-    });
+    _reminderVisible = true;
+    try {
+      await widget.scheduler.beginPresentation(occurrenceId);
+    } on PlatformException {
+      // Android can deny a foreground-service or full-screen presentation.
+      // The foreground route remains the supported graceful fallback.
+    }
+    if (!mounted) return;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => _ReminderScreen(
+            repository: widget.repository,
+            scheduler: widget.scheduler,
+            occurrenceId: occurrenceId,
+          ),
+        ),
+      );
+    } finally {
+      _reminderVisible = false;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _start() async {
@@ -161,204 +226,602 @@ class _FocusLogHomeState extends State<FocusLogHome>
     }
   }
 
+  void _openPairing() {
+    Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Pair a device')),
+        body: SafeArea(child: _Pairing(repository: widget.repository)),
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
       _Dashboard(
           repository: widget.repository,
           scheduler: widget.scheduler,
-          onStart: _start),
+          onStart: _start,
+          onReminder: _openReminder),
       _History(repository: widget.repository),
       _Reports(repository: widget.repository),
       _Heatmap(repository: widget.repository),
       _Settings(
           repository: widget.repository,
+          scheduler: widget.scheduler,
           syncStatus: _syncStatus,
-          onSync: _sync),
-      _Pairing(repository: widget.repository)
+          onSync: _sync,
+          onPair: _openPairing),
     ];
-    return Scaffold(
-      appBar: AppBar(title: const Text('FocusLog'), actions: [
-        Padding(
-            padding: const EdgeInsets.all(12),
-            child: Center(
-                child: Text(_syncStatus,
-                    semanticsLabel: 'Synchronization status: $_syncStatus')))
-      ]),
-      body: SafeArea(child: pages[_index]),
-      bottomNavigationBar: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: (value) => setState(() => _index = value),
-          destinations: const [
-            NavigationDestination(
-                icon: Icon(Icons.timer_outlined), label: 'Focus'),
-            NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-            NavigationDestination(
-                icon: Icon(Icons.bar_chart), label: 'Reports'),
-            NavigationDestination(
-                icon: Icon(Icons.calendar_month), label: 'Calendar'),
-            NavigationDestination(
-                icon: Icon(Icons.settings), label: 'Settings'),
-            NavigationDestination(icon: Icon(Icons.devices), label: 'Pair')
-          ]),
-    );
+    const destinations = [
+      NavigationDestination(icon: Icon(Icons.timer_outlined), label: 'Focus'),
+      NavigationDestination(icon: Icon(Icons.history), label: 'History'),
+      NavigationDestination(
+          icon: Icon(Icons.insights_outlined), label: 'Reports'),
+      NavigationDestination(
+          icon: Icon(Icons.calendar_month_outlined), label: 'Calendar'),
+      NavigationDestination(
+          icon: Icon(Icons.settings_outlined), label: 'Settings'),
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      final wide = constraints.maxWidth >= 760;
+      final content = SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: KeyedSubtree(key: ValueKey(_index), child: pages[_index]),
+        ),
+      );
+      return Scaffold(
+        appBar: wide
+            ? null
+            : AppBar(
+                title: const _BrandMark(),
+                actions: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Tooltip(
+                      message: _syncStatus,
+                      child: Icon(
+                        _syncStatus.startsWith('Synchronized')
+                            ? Icons.cloud_done_outlined
+                            : Icons.cloud_off_outlined,
+                        semanticLabel: _syncStatus,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+        body: wide
+            ? Row(children: [
+                NavigationRail(
+                  extended: constraints.maxWidth >= 1050,
+                  selectedIndex: _index,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: _BrandMark(),
+                  ),
+                  onDestinationSelected: (value) =>
+                      setState(() => _index = value),
+                  destinations: [
+                    for (final item in destinations)
+                      NavigationRailDestination(
+                        icon: item.icon,
+                        label: Text(item.label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: content),
+              ])
+            : content,
+        bottomNavigationBar: wide
+            ? null
+            : NavigationBar(
+                selectedIndex: _index,
+                onDestinationSelected: (value) =>
+                    setState(() => _index = value),
+                destinations: destinations,
+              ),
+      );
+    });
   }
 }
 
-class _Dashboard extends StatelessWidget {
-  const _Dashboard(
-      {required this.repository,
-      required this.scheduler,
-      required this.onStart});
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
+
+  @override
+  Widget build(BuildContext context) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(Icons.adjust,
+              size: 20, color: Theme.of(context).colorScheme.onPrimary),
+        ),
+        const SizedBox(width: 10),
+        Text('FocusLog',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700)),
+      ]);
+}
+
+class _Dashboard extends StatefulWidget {
+  const _Dashboard({
+    required this.repository,
+    required this.scheduler,
+    required this.onStart,
+    required this.onReminder,
+  });
   final FocusLogRepository repository;
   final ReminderScheduler scheduler;
   final Future<void> Function() onStart;
+  final Future<void> Function(String) onReminder;
+
   @override
-  Widget build(BuildContext context) => FutureBuilder<FocusSessionSummary?>(
-      future: repository.activeSession(),
-      builder: (context, sessionSnapshot) {
-        final active = sessionSnapshot.data;
-        return FutureBuilder<ReminderSummary?>(
-            future: repository.nextScheduledReminder(),
-            builder: (context, reminderSnapshot) {
-              final reminder = reminderSnapshot.data;
-              return ListView(padding: const EdgeInsets.all(20), children: [
-                Text('Focus session',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 12),
-                Text(active == null
-                    ? 'No active focus session.'
-                    : '${active.name} began ${active.startedAt.toLocal()}'),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                    onPressed: active == null ? onStart : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start focus session')),
-                OutlinedButton.icon(
-                    onPressed: active == null
-                        ? null
-                        : () async {
-                            await repository.stopFocusSession();
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('Focus session stopped.')));
-                            }
-                          },
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Stop session')),
-                if (reminder?.state == 'DUE' || reminder?.state == 'PRESENTED')
-                  Card(
-                      child: ListTile(
-                          title: const Text('Check-in due'),
-                          subtitle: const Text(
-                              'A response of at least 20 characters is required.'),
-                          trailing: FilledButton(
-                              onPressed: () => showReminderCompletion(
-                                  context, repository, scheduler, reminder!.id),
-                              child: const Text('Respond')))),
-                const Divider(height: 40),
-                const Text(
-                    'Reminders use standard Android notifications. Android may delay them during battery saving, app force-stop, or OEM task management; FocusLog recovers durable reminders when Android next permits execution.')
-              ]);
-            });
-      });
+  State<_Dashboard> createState() => _DashboardState();
 }
 
-Future<void> showReminderCompletion(
-  BuildContext context,
-  FocusLogRepository repository,
-  ReminderScheduler scheduler,
-  String occurrenceId,
-) async {
-  await repository.presentReminder(occurrenceId);
-  if (!context.mounted) return;
-  final controller =
-      TextEditingController(text: await repository.reminderDraft(occurrenceId));
-  if (!context.mounted) {
-    controller.dispose();
-    return;
+class _DashboardState extends State<_Dashboard> {
+  Timer? _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(
+        const Duration(seconds: 1), (_) => mounted ? setState(() {}) : null);
   }
-  var allowPop = false;
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) => PopScope(
-        canPop: allowPop,
-        child: AlertDialog(
-          title: const Text('Complete check-in'),
-          content: TextField(
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  Future<_DashboardData> _load() async {
+    final session = await widget.repository.activeSession();
+    final reminder = await widget.repository.nextScheduledReminder();
+    final interval = await widget.repository.reminderIntervalMinutes();
+    final timezone = await widget.repository.reportTimezoneId();
+    final local = tz.TZDateTime.now(tz.getLocation(timezone));
+    final report = await widget.repository.dailyReport(
+      day: _reportDayString(local),
+      timezoneId: timezone,
+    );
+    return _DashboardData(session, reminder, interval, report);
+  }
+
+  Future<void> _sessionAction(Future<void> Function() action) async {
+    try {
+      await action();
+      final reminder = await widget.repository.nextScheduledReminder();
+      if (reminder != null &&
+          (reminder.state == 'SCHEDULED' || reminder.state == 'SNOOZED')) {
+        await widget.scheduler.schedule(reminder.id, reminder.dueAt);
+      }
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      }
+    }
+  }
+
+  Future<void> _quickLog() async {
+    final controller = TextEditingController();
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Quick check-in',
+              style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 16),
+          TextField(
             controller: controller,
-            minLines: 4,
-            maxLines: 8,
             autofocus: true,
-            onChanged: (value) {
-              unawaited(repository.preserveReminderDraft(occurrenceId, value));
-            },
-            decoration: const InputDecoration(
-              labelText: 'What are you doing?',
-              helperText: 'At least 20 characters',
+            minLines: 3,
+            maxLines: 6,
+            decoration:
+                const InputDecoration(hintText: 'What are you working on?'),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('Save check-in'),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await repository.snoozeReminder(occurrenceId, 5);
-                final reminder = await repository.nextScheduledReminder();
-                if (reminder != null) {
-                  await scheduler.schedule(reminder.id, reminder.dueAt);
-                }
-                if (dialogContext.mounted) {
-                  setDialogState(() => allowPop = true);
-                  Navigator.pop(dialogContext);
-                }
-              },
-              child: const Text('Snooze 5 min'),
-            ),
-            TextButton(
-              onPressed: () async {
-                await repository.emergencyDismissReminder(occurrenceId);
-                await repository.deleteReminderDraft(occurrenceId);
-                await scheduler.cancel(occurrenceId);
-                if (dialogContext.mounted) {
-                  setDialogState(() => allowPop = true);
-                  Navigator.pop(dialogContext);
-                }
-              },
-              child: const Text('Emergency dismiss'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  await repository.completeReminder(
-                      occurrenceId, controller.text);
-                  await repository.deleteReminderDraft(occurrenceId);
-                  await scheduler.cancel(occurrenceId);
-                  for (final reminder
-                      in await repository.scheduledReminders()) {
-                    await scheduler.schedule(reminder.id, reminder.dueAt);
-                  }
-                  if (dialogContext.mounted) {
-                    setDialogState(() => allowPop = true);
-                    Navigator.pop(dialogContext);
-                  }
-                } on ArgumentError catch (error) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(content: Text(error.message.toString())),
-                    );
-                  }
-                }
-              },
-              child: const Text('Complete'),
-            ),
-          ],
-        ),
+        ]),
       ),
-    ),
-  );
-  controller.dispose();
+    );
+    controller.dispose();
+    if (value == null || value.trim().isEmpty) return;
+    await widget.repository.createCheckIn(value);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<_DashboardData>(
+        future: _load(),
+        builder: (context, snapshot) {
+          final data = snapshot.data;
+          final session = data?.session;
+          final reminder = data?.reminder;
+          final due = reminder != null &&
+              (reminder.state == 'DUE' || reminder.state == 'PRESENTED');
+          final countdown = reminder == null
+              ? '--:--'
+              : _countdown(reminder.dueAt.difference(DateTime.now().toUtc()));
+          return RefreshIndicator(
+            onRefresh: () async => setState(() {}),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+              children: [
+                Text(_greeting(), style: Theme.of(context).textTheme.bodyLarge),
+                Text(
+                  session == null ? 'Ready when you are.' : 'Stay in flow.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .displaySmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 22),
+                Card(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Icon(
+                            session == null
+                                ? Icons.pause_circle_outline
+                                : Icons.bolt,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            session == null
+                                ? 'No active session'
+                                : session.status == 'PAUSED'
+                                    ? 'Session paused'
+                                    : 'Focus session active',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ]),
+                        const SizedBox(height: 18),
+                        Text(
+                          due ? 'CHECK-IN DUE' : 'NEXT CHECK-IN',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        Text(
+                          due ? 'Now' : countdown,
+                          style: Theme.of(context)
+                              .textTheme
+                              .displayMedium
+                              ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  fontFeatures: const [
+                                FontFeature.tabularFigures()
+                              ]),
+                        ),
+                        Text('Every ${data?.interval ?? 15} minutes'),
+                        const SizedBox(height: 20),
+                        if (session == null)
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: widget.onStart,
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('Start focus session'),
+                            ),
+                          )
+                        else if (due)
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: () => widget.onReminder(reminder.id),
+                              child: const Text('Complete check-in'),
+                            ),
+                          )
+                        else
+                          Wrap(spacing: 10, runSpacing: 10, children: [
+                            FilledButton.tonalIcon(
+                              onPressed: () => _sessionAction(
+                                session.status == 'PAUSED'
+                                    ? widget.repository.resumeFocusSession
+                                    : widget.repository.pauseFocusSession,
+                              ),
+                              icon: Icon(session.status == 'PAUSED'
+                                  ? Icons.play_arrow
+                                  : Icons.pause),
+                              label: Text(session.status == 'PAUSED'
+                                  ? 'Resume'
+                                  : 'Pause'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => _sessionAction(
+                                  widget.repository.stopFocusSession),
+                              icon: const Icon(Icons.stop),
+                              label: const Text('Stop'),
+                            ),
+                          ]),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(children: [
+                  Expanded(
+                    child: _StatCard(
+                      label: 'Tracked today',
+                      value: '${data?.report.totalTrackedMinutes ?? 0}m',
+                      icon: Icons.schedule,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _StatCard(
+                      label: 'Focus score',
+                      value: '${data?.report.focusScore ?? 0}%',
+                      icon: Icons.auto_graph,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(
+                    child: _StatCard(
+                      label: 'Completed',
+                      value: '${data?.report.completedIntervals ?? 0}',
+                      icon: Icons.check_circle_outline,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _StatCard(
+                      label: 'Missed',
+                      value: '${data?.report.missedIntervals ?? 0}',
+                      icon: Icons.timelapse,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 22),
+                Text('Quick actions',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 10),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.edit_note),
+                    title: const Text('Log what you are doing'),
+                    subtitle: const Text('Saved locally and synced later'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _quickLog,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+}
+
+class _DashboardData {
+  const _DashboardData(this.session, this.reminder, this.interval, this.report);
+  final FocusSessionSummary? session;
+  final ReminderSummary? reminder;
+  final int interval;
+  final DailyReport report;
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard(
+      {required this.label, required this.value, required this.icon});
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(icon, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(value,
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ]),
+        ),
+      );
+}
+
+class _ReminderScreen extends StatefulWidget {
+  const _ReminderScreen({
+    required this.repository,
+    required this.scheduler,
+    required this.occurrenceId,
+  });
+  final FocusLogRepository repository;
+  final ReminderScheduler scheduler;
+  final String occurrenceId;
+
+  @override
+  State<_ReminderScreen> createState() => _ReminderScreenState();
+}
+
+class _ReminderScreenState extends State<_ReminderScreen>
+    with WidgetsBindingObserver {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _submitting = false;
+  bool _completed = false;
+  int _interval = 15;
+
+  int get _length => _controller.text.trim().runes.length;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_load());
+    _controller.addListener(_changed);
+  }
+
+  Future<void> _load() async {
+    _controller.text =
+        await widget.repository.reminderDraft(widget.occurrenceId);
+    _interval = await widget.repository.reminderIntervalMinutes();
+    if (mounted) {
+      setState(() {});
+      _focusNode.requestFocus();
+    }
+  }
+
+  void _changed() {
+    unawaited(widget.repository
+        .preserveReminderDraft(widget.occurrenceId, _controller.text));
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_completed) {
+      unawaited(widget.scheduler
+          .beginPresentation(widget.occurrenceId)
+          .onError<PlatformException>((_, __) {}));
+      _focusNode.requestFocus();
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_length < 20 || _submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await widget.repository
+          .completeReminder(widget.occurrenceId, _controller.text);
+      await widget.repository.deleteReminderDraft(widget.occurrenceId);
+      try {
+        await widget.scheduler.endPresentation(widget.occurrenceId);
+        for (final reminder in await widget.repository.scheduledReminders()) {
+          await widget.scheduler.schedule(reminder.id, reminder.dueAt);
+        }
+      } on PlatformException {
+        // Completion is already durable. Recovery will reconcile platform
+        // notifications the next time Android permits scheduler work.
+      }
+      _completed = true;
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_changed);
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: _completed,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && !_completed) _focusNode.requestFocus();
+        },
+        child: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Icon(Icons.adjust,
+                          size: 44,
+                          color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(height: 28),
+                      Text(
+                        'What did you accomplish during the last $_interval minutes?',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 28),
+                      TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        autofocus: true,
+                        minLines: 7,
+                        maxLines: 12,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText:
+                              'Describe what you completed, decided, or learned.',
+                          helperText: _length < 20
+                              ? '${20 - _length} more characters required'
+                              : 'Ready to submit',
+                          suffixText: '$_length / 20',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed:
+                            _length >= 20 && !_submitting ? _submit : null,
+                        child: _submitting
+                            ? const SizedBox.square(
+                                dimension: 22,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Submit check-in'),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Your unfinished response is saved on this device.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _History extends StatefulWidget {
@@ -547,10 +1010,32 @@ class _ReportsState extends State<_Reports> {
             Text(_error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error)),
           const SizedBox(height: 16),
-          _Metric('Completed intervals', report?.completedIntervals ?? 0),
-          _Metric('Missed intervals', report?.missedIntervals ?? 0),
-          _Metric('Tracked minutes', report?.totalTrackedMinutes ?? 0),
-          _Metric('Focus score', report?.focusScore ?? 0),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            _Metric(
+                'Completed', '${report?.completedIntervals ?? 0}', Icons.done),
+            _Metric(
+                'Missed', '${report?.missedIntervals ?? 0}', Icons.timelapse),
+            _Metric('Tracked', '${report?.totalTrackedMinutes ?? 0} min',
+                Icons.schedule),
+            _Metric(
+                'Focus score', '${report?.focusScore ?? 0}%', Icons.auto_graph),
+            _Metric('Completion', '${report?.completionPercentage ?? 0}%',
+                Icons.task_alt),
+            _Metric(
+                'Average delay',
+                '${report?.averageResponseDelayMinutes ?? 0} min',
+                Icons.av_timer),
+            _Metric('Longest streak', '${report?.longestFocusStreak ?? 0}',
+                Icons.local_fire_department_outlined),
+          ]),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.psychology_alt_outlined),
+              title: const Text('Most common activity'),
+              subtitle:
+                  Text(report?.mostCommonActivity ?? 'No activity recorded'),
+            ),
+          ),
           Text(
               'Report timezone: ${report?.timezoneId ?? _timezone.text}; local day length: ${report?.dayDurationMinutes ?? 1440} minutes'),
           Text(
@@ -570,6 +1055,20 @@ class _ReportsState extends State<_Reports> {
                   '${_reportTime(item.occurredAt, report!.timezoneId)} · ${item.detail}'
                   '${item.originalTimezoneId == null ? '' : '\nRecorded in ${item.originalTimezoneId}'}'),
             ),
+          if (report != null && report.wordCloud.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Activity words',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final word in report.wordCloud.entries)
+                  Chip(label: Text('${word.key}  ${word.value}')),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           Text(
               'Trends: week ${report?.weekly ?? 0}, month ${report?.monthly ?? 0}, year ${report?.yearly ?? 0} check-ins')
@@ -578,15 +1077,30 @@ class _ReportsState extends State<_Reports> {
 }
 
 class _Metric extends StatelessWidget {
-  const _Metric(this.label, this.value);
+  const _Metric(this.label, this.value, this.icon);
   final String label;
-  final int value;
+  final String value;
+  final IconData icon;
   @override
-  Widget build(BuildContext context) => Card(
-      child: ListTile(
-          title: Text(label),
-          trailing: Text('$value',
-              style: Theme.of(context).textTheme.headlineMedium)));
+  Widget build(BuildContext context) => SizedBox(
+        width: 164,
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(icon, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 12),
+              Text(value,
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              Text(label),
+            ]),
+          ),
+        ),
+      );
 }
 
 class _Heatmap extends StatefulWidget {
@@ -713,13 +1227,12 @@ class _HeatmapState extends State<_Heatmap> {
                     intensity: day.intensity,
                     timezoneId: heatmap!.timezoneId,
                     onSelected: () async {
-                      final log = await widget.repository.dayLog(
-                        day.day,
-                        timezoneId: heatmap.timezoneId,
-                      );
+                      final report = await widget.repository.dailyReport(
+                          day: day.day, timezoneId: heatmap.timezoneId);
                       if (context.mounted) {
                         showModalBottomSheet<void>(
                           context: context,
+                          isScrollControlled: true,
                           builder: (context) => ListView(
                             padding: const EdgeInsets.all(20),
                             children: [
@@ -728,9 +1241,28 @@ class _HeatmapState extends State<_Heatmap> {
                                       .textTheme
                                       .headlineSmall),
                               Text('Report timezone: ${heatmap.timezoneId}'),
-                              if (log.isEmpty)
+                              const SizedBox(height: 12),
+                              Wrap(spacing: 8, runSpacing: 8, children: [
+                                Chip(
+                                    label: Text(
+                                        '${report.completedIntervals} completed')),
+                                Chip(
+                                    label: Text(
+                                        '${report.missedIntervals} missed')),
+                                Chip(
+                                    label: Text(
+                                        '${report.completionPercentage}% completion')),
+                                Chip(
+                                    label: Text(
+                                        '${report.averageResponseDelayMinutes}m average delay')),
+                                Chip(
+                                    label: Text(
+                                        '${report.totalTrackedMinutes}m tracked')),
+                              ]),
+                              const SizedBox(height: 12),
+                              if (report.timeline.isEmpty)
                                 const Text('No activity recorded.'),
-                              for (final entry in log)
+                              for (final entry in report.timeline)
                                 ListTile(
                                   title: Text(entry.title),
                                   subtitle: Text(
@@ -794,24 +1326,58 @@ class _DayCell extends StatelessWidget {
 class _Settings extends StatefulWidget {
   const _Settings({
     required this.repository,
+    required this.scheduler,
     required this.syncStatus,
     required this.onSync,
+    required this.onPair,
   });
   final FocusLogRepository repository;
+  final ReminderScheduler scheduler;
   final String syncStatus;
   final Future<void> Function() onSync;
+  final VoidCallback onPair;
   @override
   State<_Settings> createState() => _SettingsState();
 }
 
 class _SettingsState extends State<_Settings> {
   final _recoveryKey = TextEditingController();
+  final _customInterval = TextEditingController();
+  int _interval = 15;
   String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    widget.repository.reminderIntervalMinutes().then((value) {
+      if (mounted) setState(() => _interval = value);
+    });
+  }
 
   @override
   void dispose() {
     _recoveryKey.dispose();
+    _customInterval.dispose();
     super.dispose();
+  }
+
+  Future<void> _setInterval(int value) async {
+    try {
+      await widget.repository.setReminderInterval(value);
+      final reminder = await widget.repository.nextScheduledReminder();
+      if (reminder != null &&
+          (reminder.state == 'SCHEDULED' || reminder.state == 'SNOOZED')) {
+        await widget.scheduler.schedule(reminder.id, reminder.dueAt);
+      }
+      if (mounted) {
+        setState(() {
+          _interval = value;
+          _status = 'Check-in interval updated to $value minutes.';
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = _friendlyError(error));
+    }
   }
 
   Future<void> _createArchive(String kind) async {
@@ -928,17 +1494,81 @@ class _SettingsState extends State<_Settings> {
         padding: const EdgeInsets.all(20),
         children: [
           Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 12),
+          Text('Check-in interval',
+              style: Theme.of(context).textTheme.titleLarge),
+          Text('Current interval: $_interval minutes'),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final value in const [
+                5,
+                10,
+                15,
+                20,
+                25,
+                30,
+                45,
+                60,
+                90,
+                120
+              ])
+                ChoiceChip(
+                  label: Text('${value}m'),
+                  selected: _interval == value,
+                  onSelected: (_) => _setInterval(value),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _customInterval,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Custom minutes',
+                  helperText: '5–240 minutes',
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            FilledButton.tonal(
+              onPressed: () {
+                final value = int.tryParse(_customInterval.text);
+                if (value == null) {
+                  setState(() => _status = 'Enter a whole number from 5–240.');
+                } else {
+                  _setInterval(value);
+                }
+              },
+              child: const Text('Apply'),
+            ),
+          ]),
+          const Divider(height: 36),
           ListTile(
+            contentPadding: EdgeInsets.zero,
             title: const Text('Synchronization'),
             subtitle: Text(widget.syncStatus),
             trailing: FilledButton(
                 onPressed: widget.onSync, child: const Text('Sync now')),
           ),
           const ListTile(
+            contentPadding: EdgeInsets.zero,
             title: Text('Battery optimization'),
             subtitle: Text(
               'FocusLog does not disable Android battery controls. If reminders are delayed, allow notifications and review the app battery setting.',
             ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.devices_outlined),
+            title: const Text('Pair a trusted device'),
+            subtitle: const Text('Use a temporary code from the owner desktop'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: widget.onPair,
           ),
           const Divider(),
           Text('Encrypted backup and export',
@@ -1066,7 +1696,7 @@ class _PairingState extends State<_Pairing> {
               try {
                 await _claim();
               } catch (error) {
-                if (mounted) setState(() => _status = error.toString());
+                if (mounted) setState(() => _status = _friendlyError(error));
               }
             },
             child: const Text('Request pairing')),
@@ -1075,11 +1705,44 @@ class _PairingState extends State<_Pairing> {
               try {
                 await _finish();
               } catch (error) {
-                if (mounted) setState(() => _status = error.toString());
+                if (mounted) setState(() => _status = _friendlyError(error));
               }
             },
             child: const Text('Finish after approval')),
         const SizedBox(height: 12),
         Text(_status)
       ]);
+}
+
+String _countdown(Duration duration) {
+  if (duration.isNegative) return '00:00';
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  final seconds = duration.inSeconds.remainder(60);
+  if (hours > 0) {
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+  return '${minutes.toString().padLeft(2, '0')}:'
+      '${seconds.toString().padLeft(2, '0')}';
+}
+
+String _greeting() {
+  final hour = DateTime.now().hour;
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+String _friendlyError(Object error) {
+  final message = error.toString();
+  if (message.contains('Failed host lookup') ||
+      message.contains('SocketException') ||
+      message.contains('Connection refused')) {
+    return 'FocusLog cannot reach the server. Your work is safe offline; check your connection and try again.';
+  }
+  return message
+      .replaceFirst('ClientException with SocketException: ', '')
+      .replaceFirst('Exception: ', '');
 }

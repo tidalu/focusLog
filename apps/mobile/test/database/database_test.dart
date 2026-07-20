@@ -7,9 +7,15 @@ void main() {
     final database = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(database.close);
 
-    final result = await database.customSelect("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tombstones'").getSingle();
+    final result = await database
+        .customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tombstones'")
+        .getSingle();
     expect(result.data['name'], 'tombstones');
-    final outbox = await database.customSelect("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'outbox_operations'").getSingle();
+    final outbox = await database
+        .customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'outbox_operations'")
+        .getSingle();
     expect(outbox.data['name'], 'outbox_operations');
   });
 }

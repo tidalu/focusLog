@@ -125,6 +125,11 @@ describe('desktop reporting', () => {
 
     expect(report.completedIntervals).toBe(1);
     expect(report.focusScore).toBe(100);
+    expect(report.completionPercentage).toBe(100);
+    expect(report.averageResponseDelayMinutes).toBe(5);
+    expect(report.longestFocusStreak).toBe(1);
+    expect(report.mostCommonActivity).toBe('A detailed completed focus check-in');
+    expect(report.wordCloud).toContainEqual({ word: 'check-in', count: 1 });
     expect(new Set(report.timeline.map((item) => item.kind))).toEqual(
       new Set([
         'SESSION_START',

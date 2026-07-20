@@ -40,6 +40,7 @@ class AndroidReminderScheduler implements ReminderScheduler {
     final android = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.requestNotificationsPermission();
+    await android?.requestFullScreenIntentPermission();
     await Workmanager()
         .initialize(backgroundCallbackDispatcher, isInDebugMode: false);
     await Workmanager().registerPeriodicTask(
@@ -69,8 +70,13 @@ class AndroidReminderScheduler implements ReminderScheduler {
       const NotificationDetails(
           android: AndroidNotificationDetails(_channelId, _channelName,
               channelDescription: 'Focus session check-in reminders',
-              importance: Importance.high,
-              priority: Priority.high)),
+              importance: Importance.max,
+              priority: Priority.max,
+              category: AndroidNotificationCategory.reminder,
+              visibility: NotificationVisibility.public,
+              fullScreenIntent: true,
+              ongoing: true,
+              autoCancel: false)),
       // flutter_local_notifications delegates this durable alarm to Android's
       // AlarmManager. Inexact allow-while-idle avoids demanding restricted
       // exact-alarm privileges while WorkManager supplies reconciliation.
@@ -82,6 +88,41 @@ class AndroidReminderScheduler implements ReminderScheduler {
   @override
   Future<void> cancel(String occurrenceId) =>
       _notifications.cancel(occurrenceId.hashCode & 0x7fffffff);
+
+  @override
+  Future<void> beginPresentation(String occurrenceId) async {
+    final android = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await android?.startForegroundService(
+      occurrenceId.hashCode & 0x7fffffff,
+      'FocusLog check-in is due',
+      'Return to FocusLog and submit a response to complete this interval.',
+      notificationDetails: const AndroidNotificationDetails(
+        _channelId,
+        _channelName,
+        channelDescription: 'Focus session check-in reminders',
+        importance: Importance.max,
+        priority: Priority.max,
+        category: AndroidNotificationCategory.reminder,
+        visibility: NotificationVisibility.public,
+        ongoing: true,
+        autoCancel: false,
+      ),
+      payload: occurrenceId,
+      startType: AndroidServiceStartType.startSticky,
+      foregroundServiceTypes: {
+        AndroidServiceForegroundType.foregroundServiceTypeSpecialUse,
+      },
+    );
+  }
+
+  @override
+  Future<void> endPresentation(String occurrenceId) async {
+    final android = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await android?.stopForegroundService();
+    await cancel(occurrenceId);
+  }
 
   @override
   Future<void> recoverAfterStartup() => Workmanager().registerOneOffTask(
