@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://focuslog.local/contracts/events/focuslog-ws-v1.schema.json",
+  "title": "FocusLog WebSocket protocol v1",
+  "oneOf": [{ "$ref": "#/$defs/clientFrame" }, { "$ref": "#/$defs/serverFrame" }],
+  "x-focuslog-client-message-types": [
+    "presence.hello",
+    "presence.heartbeat",
+    "sync.subscribe",
+    "reminder.claim-request",
+    "reminder.claim-release"
+  ],
+  "x-focuslog-server-message-types": [
+    "connection.ready",
+    "presence.snapshot",
+    "presence.changed",
+    "presence.heartbeat-ack",
+    "sync.subscribed",
+    "sync.available",
+    "reminder.claim-granted",
+    "reminder.claim-denied",
+    "reminder.claim-released",
+    "device.revoked",
+    "error"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 26,
+      "maxLength": 26,
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "clientFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "type", "requestId", "sentAt", "payload"],
+      "properties": {
+        "version": { "const": "1" },
+        "type": {
+          "enum": [
+            "presence.hello",
+            "presence.heartbeat",
+            "sync.subscribe",
+            "reminder.claim-request",
+            "reminder.claim-release"
+          ]
+        },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "payload": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "presence.hello" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/presenceHello" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sync.subscribe" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/syncSubscribe" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "reminder.claim-request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/claimRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "reminder.claim-release" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/claimRelease" } } }
+        }
+      ]
+    },
+    "serverFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "type", "eventId", "sentAt", "payload"],
+      "properties": {
+        "version": { "const": "1" },
+        "type": {
+          "enum": [
+            "connection.ready",
+            "presence.snapshot",
+            "presence.changed",
+            "presence.heartbeat-ack",
+            "sync.subscribed",
+            "sync.available",
+            "reminder.claim-granted",
+            "reminder.claim-denied",
+            "reminder.claim-released",
+            "device.revoked",
+            "error"
+          ]
+        },
+        "eventId": { "$ref": "#/$defs/id" },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "payload": { "type": "object" }
+      }
+    },
+    "presenceHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reminderCapable", "clientVersion"],
+      "properties": {
+        "state": { "enum": ["foreground", "background"] },
+        "reminderCapable": { "type": "boolean" },
+        "clientVersion": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "syncSubscribe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cursor"],
+      "properties": { "cursor": { "type": "string", "pattern": "^[0-9]+$" } }
+    },
+    "claimRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurrenceId", "claimTtlSeconds"],
+      "properties": {
+        "occurrenceId": { "$ref": "#/$defs/id" },
+        "claimTtlSeconds": { "type": "integer", "minimum": 5, "maximum": 120 }
+      }
+    },
+    "claimRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurrenceId", "claimId"],
+      "properties": {
+        "occurrenceId": { "$ref": "#/$defs/id" },
+        "claimId": { "$ref": "#/$defs/id" }
+      }
+    }
+  }
+}

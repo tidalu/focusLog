@@ -1,0 +1,76 @@
+{
+  "name": "@focuslog/desktop",
+  "version": "0.1.0",
+  "description": "Private, local-first focus tracking for Windows.",
+  "author": "FocusLog",
+  "private": true,
+  "type": "module",
+  "main": "./dist-electron/main.js",
+  "scripts": {
+    "build": "pnpm run build:main && pnpm run build:renderer",
+    "package:win": "pnpm run build && pnpm run rebuild:native:electron && electron-builder --win nsis",
+    "rebuild:native:node": "pnpm rebuild better-sqlite3-multiple-ciphers",
+    "rebuild:native:electron": "electron-rebuild --force --which-module better-sqlite3-multiple-ciphers --arch x64",
+    "clean:main": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\"",
+    "build:main": "pnpm run clean:main && tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "dev:renderer": "vite",
+    "prestart": "pnpm run rebuild:native:electron",
+    "start": "electron .",
+    "lint": "eslint src electron",
+    "typecheck": "tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.renderer.json",
+    "pretest": "pnpm run rebuild:native:node",
+    "test": "vitest run --config vitest.config.ts",
+    "test:database": "vitest run --config vitest.config.ts electron/database"
+  },
+  "dependencies": {
+    "@focuslog/shared-utils": "workspace:*",
+    "better-sqlite3-multiple-ciphers": "^12.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "ulid": "^2.4.0",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.2",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.12",
+    "vite": "^6.3.3",
+    "vitest": "^3.1.2"
+  },
+  "build": {
+    "npmRebuild": false,
+    "appId": "com.focuslog.desktop",
+    "productName": "FocusLog",
+    "files": [
+      "dist/renderer/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "artifactName": "FocusLog-Setup-${version}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

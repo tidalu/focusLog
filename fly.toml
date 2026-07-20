@@ -1,0 +1,29 @@
+app = "focuslog-backend"
+primary_region = "waw"
+
+[build]
+  dockerfile = "apps/backend/Dockerfile"
+
+[deploy]
+  release_command = "node ./node_modules/prisma/build/index.js migrate deploy"
+
+[env]
+  NODE_ENV = "production"
+  BACKEND_HOST = "0.0.0.0"
+  BACKEND_PORT = "3000"
+  REQUIRE_TLS = "true"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/ready"

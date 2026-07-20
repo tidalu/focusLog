@@ -1,0 +1,457 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OwnerStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum DevicePlatform {
+  WINDOWS
+  ANDROID
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+  RETIRED
+}
+
+enum PairingStatus {
+  PENDING
+  APPROVED
+  CANCELLED
+  EXPIRED
+  CONSUMED
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+  COMPLETED
+}
+
+enum ReminderState {
+  SCHEDULED
+  DUE
+  PRESENTED
+  SNOOZED
+  COMPLETED
+  SKIPPED
+  EMERGENCY_DISMISSED
+  MISSED
+  SUPERSEDED
+}
+
+enum SyncOperationStatus {
+  ACCEPTED
+  REJECTED
+  CONFLICT
+}
+
+enum ConflictStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum BackupKind {
+  BACKUP
+  EXPORT
+}
+
+model Owner {
+  id        String      @id @db.VarChar(26)
+  status    OwnerStatus @default(ACTIVE)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
+
+  devices             Device[]
+  pairingRequests     DevicePairing[]
+  focusModes          FocusMode[]
+  focusSessions       FocusSession[]
+  reminderOccurrences ReminderOccurrence[]
+  checkIns            CheckIn[]
+  tags                Tag[]
+  categories          Category[]
+  syncOperations      SyncOperation[]
+  syncCursors         SyncCursor[]
+  syncState           OwnerSyncState?
+  conflicts           Conflict[]
+  backups             BackupManifest[]
+  settings            Setting?
+  tombstones          Tombstone[]
+
+  @@map("owners")
+}
+
+model Device {
+  id            String         @id @db.VarChar(26)
+  ownerId       String         @db.VarChar(26)
+  publicKey     String         @unique @db.Text
+  fingerprint   String         @unique @db.VarChar(128)
+  platform      DevicePlatform
+  displayName   String?        @db.VarChar(120)
+  capabilities  Json?          @db.JsonB
+  isOwnerDevice Boolean        @default(false)
+  status        DeviceStatus   @default(ACTIVE)
+  lastSeenAt    DateTime?      @db.Timestamptz(3)
+  revokedAt     DateTime?      @db.Timestamptz(3)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+
+  owner            Owner                @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  approvedPairings DevicePairing[]      @relation("PairingApprover")
+  transitions      ReminderTransition[]
+  syncOperations   SyncOperation[]
+  syncCursor       SyncCursor?
+  requestNonces    DeviceRequestNonce[]
+
+  @@index([ownerId, status])
+  @@index([ownerId, lastSeenAt])
+  @@map("devices")
+}
+
+model DeviceRequestNonce {
+  id        String   @id @db.VarChar(26)
+  deviceId  String   @db.VarChar(26)
+  nonce     String   @db.VarChar(128)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, nonce])
+  @@index([expiresAt])
+  @@map("device_request_nonces")
+}
+
+model DevicePairing {
+  id                   String          @id @db.VarChar(26)
+  ownerId              String          @db.VarChar(26)
+  pairingCodeHash      String?         @unique @db.VarChar(128)
+  candidateDeviceId    String?         @db.VarChar(26)
+  candidatePublicKey   String?         @db.Text
+  candidateFingerprint String?         @db.VarChar(128)
+  candidatePlatform    DevicePlatform?
+  status               PairingStatus   @default(PENDING)
+  approvedByDeviceId   String?         @db.VarChar(26)
+  expiresAt            DateTime        @db.Timestamptz(3)
+  approvedAt           DateTime?       @db.Timestamptz(3)
+  consumedAt           DateTime?       @db.Timestamptz(3)
+  cancelledAt          DateTime?       @db.Timestamptz(3)
+  createdAt            DateTime        @default(now()) @db.Timestamptz(3)
+
+  owner            Owner   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  approvedByDevice Device? @relation("PairingApprover", fields: [approvedByDeviceId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerId, candidateFingerprint])
+  @@index([ownerId, status, expiresAt])
+  @@map("device_pairings")
+}
+
+model FocusMode {
+  id              String    @id @db.VarChar(26)
+  ownerId         String    @db.VarChar(26)
+  name            String    @db.VarChar(120)
+  intervalMinutes Int
+  policy          Json      @db.JsonB
+  version         String    @db.VarChar(26)
+  deletedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  owner    Owner          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  sessions FocusSession[]
+
+  @@unique([ownerId, name])
+  @@index([ownerId, deletedAt])
+  @@map("focus_modes")
+}
+
+model FocusSession {
+  id             String        @id @db.VarChar(26)
+  ownerId        String        @db.VarChar(26)
+  focusModeId    String        @db.VarChar(26)
+  name           String?       @db.VarChar(160)
+  status         SessionStatus @default(ACTIVE)
+  schedulePolicy Json          @db.JsonB
+  timezoneId     String        @db.VarChar(64)
+  startedAt      DateTime      @db.Timestamptz(3)
+  endedAt        DateTime?     @db.Timestamptz(3)
+  version        String        @db.VarChar(26)
+  deletedAt      DateTime?     @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+
+  owner       Owner                @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  focusMode   FocusMode            @relation(fields: [focusModeId], references: [id], onDelete: Restrict)
+  occurrences ReminderOccurrence[]
+  checkIns    CheckIn[]
+
+  @@index([ownerId, status, startedAt])
+  @@index([ownerId, startedAt, endedAt])
+  @@index([ownerId, deletedAt])
+  @@map("focus_sessions")
+}
+
+model ReminderOccurrence {
+  id                  String        @id @db.VarChar(26)
+  ownerId             String        @db.VarChar(26)
+  focusSessionId      String        @db.VarChar(26)
+  state               ReminderState @default(SCHEDULED)
+  scheduledAt         DateTime      @db.Timestamptz(3)
+  originalScheduledAt DateTime      @db.Timestamptz(3)
+  presentedAt         DateTime?     @db.Timestamptz(3)
+  resolvedAt          DateTime?     @db.Timestamptz(3)
+  timezoneId          String        @db.VarChar(64)
+  policySnapshot      Json          @db.JsonB
+  version             String        @db.VarChar(26)
+  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
+
+  owner        Owner                @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  focusSession FocusSession         @relation(fields: [focusSessionId], references: [id], onDelete: Restrict)
+  transitions  ReminderTransition[]
+  checkIn      CheckIn?
+
+  @@index([ownerId, state, scheduledAt])
+  @@index([ownerId, resolvedAt])
+  @@index([focusSessionId, scheduledAt])
+  @@map("reminder_occurrences")
+}
+
+model ReminderTransition {
+  id                   String        @id @db.VarChar(26)
+  ownerId              String        @db.VarChar(26)
+  reminderOccurrenceId String        @db.VarChar(26)
+  actingDeviceId       String?       @db.VarChar(26)
+  fromState            ReminderState
+  toState              ReminderState
+  reason               String?       @db.VarChar(500)
+  originalScheduledAt  DateTime      @db.Timestamptz(3)
+  occurredAt           DateTime      @db.Timestamptz(3)
+  operationId          String        @unique @db.VarChar(26)
+  createdAt            DateTime      @default(now()) @db.Timestamptz(3)
+
+  occurrence   ReminderOccurrence @relation(fields: [reminderOccurrenceId], references: [id], onDelete: Restrict)
+  actingDevice Device?            @relation(fields: [actingDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, occurredAt])
+  @@index([reminderOccurrenceId, occurredAt])
+  @@map("reminder_transitions")
+}
+
+model CheckIn {
+  id                   String    @id @db.VarChar(26)
+  ownerId              String    @db.VarChar(26)
+  reminderOccurrenceId String?   @unique @db.VarChar(26)
+  focusSessionId       String?   @db.VarChar(26)
+  categoryId           String?   @db.VarChar(26)
+  currentRevisionId    String?   @db.VarChar(26)
+  submittedAt          DateTime  @db.Timestamptz(3)
+  timezoneId           String    @db.VarChar(64)
+  version              String    @db.VarChar(26)
+  deletedAt            DateTime? @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  owner              Owner               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  reminderOccurrence ReminderOccurrence? @relation(fields: [reminderOccurrenceId], references: [id], onDelete: SetNull)
+  focusSession       FocusSession?       @relation(fields: [focusSessionId], references: [id], onDelete: SetNull)
+  category           Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  revisions          CheckInRevision[]
+  tags               CheckInTag[]
+
+  @@index([ownerId, submittedAt])
+  @@index([ownerId, deletedAt])
+  @@index([focusSessionId, submittedAt])
+  @@map("check_ins")
+}
+
+model CheckInRevision {
+  id               String    @id @db.VarChar(26)
+  checkInId        String    @db.VarChar(26)
+  parentRevisionId String?   @db.VarChar(26)
+  body             String    @db.Text
+  authorDeviceId   String?   @db.VarChar(26)
+  operationId      String    @unique @db.VarChar(26)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt        DateTime? @db.Timestamptz(3)
+
+  checkIn CheckIn @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+
+  @@index([checkInId, createdAt])
+  @@map("check_in_revisions")
+}
+
+model Tag {
+  id        String    @id @db.VarChar(26)
+  ownerId   String    @db.VarChar(26)
+  name      String    @db.VarChar(80)
+  color     String?   @db.VarChar(32)
+  version   String    @db.VarChar(26)
+  deletedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+
+  owner    Owner        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  checkIns CheckInTag[]
+
+  @@unique([ownerId, name])
+  @@index([ownerId, deletedAt])
+  @@map("tags")
+}
+
+model Category {
+  id        String    @id @db.VarChar(26)
+  ownerId   String    @db.VarChar(26)
+  name      String    @db.VarChar(80)
+  color     String?   @db.VarChar(32)
+  version   String    @db.VarChar(26)
+  deletedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+
+  owner    Owner     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  checkIns CheckIn[]
+
+  @@unique([ownerId, name])
+  @@index([ownerId, deletedAt])
+  @@map("categories")
+}
+
+model CheckInTag {
+  checkInId String @db.VarChar(26)
+  tagId     String @db.VarChar(26)
+
+  checkIn CheckIn @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([checkInId, tagId])
+  @@index([tagId])
+  @@map("check_in_tags")
+}
+
+model SyncOperation {
+  operationId    String              @id @db.VarChar(26)
+  ownerId        String              @db.VarChar(26)
+  deviceId       String              @db.VarChar(26)
+  deviceSequence BigInt
+  entityType     String              @db.VarChar(80)
+  entityId       String              @db.VarChar(26)
+  kind           String              @db.VarChar(120)
+  baseVersion    String?             @db.VarChar(26)
+  payload        Json                @db.JsonB
+  occurredAt     DateTime            @db.Timestamptz(3)
+  receivedAt     DateTime            @default(now()) @db.Timestamptz(3)
+  status         SyncOperationStatus @default(ACCEPTED)
+  result         Json?               @db.JsonB
+  sequence       BigInt?
+
+  owner  Owner  @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  @@unique([ownerId, deviceId, deviceSequence])
+  @@unique([ownerId, sequence])
+  @@index([ownerId, receivedAt])
+  @@index([ownerId, entityType, entityId])
+  @@map("sync_operations")
+}
+
+model SyncCursor {
+  ownerId             String   @db.VarChar(26)
+  deviceId            String   @unique @db.VarChar(26)
+  lastAppliedSequence BigInt   @default(0)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+
+  owner  Owner  @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  @@id([ownerId, deviceId])
+  @@map("sync_cursors")
+}
+
+model OwnerSyncState {
+  ownerId      String   @id @db.VarChar(26)
+  nextSequence BigInt   @default(0)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@map("owner_sync_state")
+}
+
+model Conflict {
+  id                String         @id @db.VarChar(26)
+  ownerId           String         @db.VarChar(26)
+  entityType        String         @db.VarChar(80)
+  entityId          String         @db.VarChar(26)
+  localOperationId  String?        @db.VarChar(26)
+  remoteOperationId String?        @db.VarChar(26)
+  localPayload      Json?          @db.JsonB
+  remotePayload     Json?          @db.JsonB
+  status            ConflictStatus @default(OPEN)
+  resolvedAt        DateTime?      @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@index([ownerId, status, createdAt])
+  @@index([ownerId, entityType, entityId])
+  @@map("conflicts")
+}
+
+model BackupManifest {
+  id              String     @id @db.VarChar(26)
+  ownerId         String     @db.VarChar(26)
+  kind            BackupKind @default(BACKUP)
+  formatVersion   Int
+  schemaVersion   Int
+  storageLocation String     @db.Text
+  checksum        String     @db.VarChar(128)
+  encryption      Json       @db.JsonB
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
+  expiresAt       DateTime?  @db.Timestamptz(3)
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@index([ownerId, createdAt])
+  @@map("backup_manifests")
+}
+
+model Setting {
+  ownerId   String   @id @db.VarChar(26)
+  values    Json     @db.JsonB
+  version   String   @db.VarChar(26)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@map("settings")
+}
+
+model Tombstone {
+  id             String   @id @db.VarChar(26)
+  ownerId        String   @db.VarChar(26)
+  entityType     String   @db.VarChar(80)
+  entityId       String   @db.VarChar(26)
+  version        String   @db.VarChar(26)
+  deletedAt      DateTime @db.Timestamptz(3)
+  retentionUntil DateTime @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@unique([ownerId, entityType, entityId])
+  @@index([ownerId, retentionUntil])
+  @@map("tombstones")
+}

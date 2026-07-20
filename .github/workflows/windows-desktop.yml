@@ -1,0 +1,35 @@
+name: Windows desktop release validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @focuslog/desktop test
+      - run: pnpm --filter @focuslog/desktop package:win
+      - name: Clean-install smoke test
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem apps/desktop/release/FocusLog-Setup-*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not produced.' }
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $uninstaller = Get-ChildItem "$env:LOCALAPPDATA\Programs\FocusLog\Uninstall*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $uninstaller) { throw 'Installed application did not include an uninstaller.' }
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: focuslog-windows-installer
+          path: apps/desktop/release/FocusLog-Setup-*.exe

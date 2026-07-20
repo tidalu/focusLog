@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://focuslog.local/contracts/json-schema/device-auth-v1.schema.json",
+  "title": "FocusLog signed device request headers v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "x-focuslog-device-id",
+    "x-focuslog-timestamp",
+    "x-focuslog-nonce",
+    "x-focuslog-signature"
+  ],
+  "properties": {
+    "x-focuslog-device-id": { "type": "string", "minLength": 26, "maxLength": 26 },
+    "x-focuslog-timestamp": { "type": "string", "format": "date-time" },
+    "x-focuslog-nonce": { "type": "string", "minLength": 16, "maxLength": 128 },
+    "x-focuslog-signature": { "type": "string", "minLength": 16 }
+  }
+}

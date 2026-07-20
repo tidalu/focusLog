@@ -1,0 +1,23 @@
+[
+  {
+    "version": "1",
+    "type": "presence.hello",
+    "requestId": "01K123456789ABCDEFGHJKMNPQ",
+    "sentAt": "2026-07-20T12:00:00.000Z",
+    "payload": {
+      "state": "foreground",
+      "reminderCapable": true,
+      "clientVersion": "desktop-1.0.0"
+    }
+  },
+  {
+    "version": "1",
+    "type": "sync.available",
+    "eventId": "01K123456789ABCDEFGHJKMNPR",
+    "sentAt": "2026-07-20T12:00:01.000Z",
+    "payload": {
+      "sourceDeviceId": "01K123456789ABCDEFGHJKMNPS",
+      "nextCursor": "42"
+    }
+  }
+]

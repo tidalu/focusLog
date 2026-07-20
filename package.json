@@ -1,0 +1,43 @@
+{
+  "name": "focuslog",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "contracts:generate": "node scripts/generate-contracts.mjs",
+    "contracts:check": "node scripts/generate-contracts.mjs --check",
+    "traceability:generate": "node scripts/generate-traceability.mjs",
+    "traceability:check": "node scripts/generate-traceability.mjs --check",
+    "mobile:analyze": "flutter analyze --cwd apps/mobile",
+    "mobile:test": "flutter test --cwd apps/mobile",
+    "mobile:build": "flutter build apk --debug --project-dir apps/mobile"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "eslint": "^9.24.0",
+    "eslint-config-prettier": "^10.1.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.1",
+    "prettier": "^3.5.3",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.0"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,tsx,json,yml,yaml,md}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --max-warnings=0"
+    ]
+  }
+}

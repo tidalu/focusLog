@@ -1,0 +1,503 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FocusLog Personal Device API",
+    "version": "1.0.0",
+    "description": "Version 1 REST contract for one owner and their trusted paired devices."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "tags": [
+    { "name": "devices" },
+    { "name": "focus modes" },
+    { "name": "focus sessions" },
+    { "name": "reminders" },
+    { "name": "check-ins" },
+    { "name": "search" },
+    { "name": "synchronization" },
+    { "name": "reports" },
+    { "name": "backups" },
+    { "name": "data" }
+  ],
+  "paths": {
+    "/devices/bootstrap": {
+      "post": {
+        "operationId": "bootstrapOwnerDevice",
+        "tags": ["devices"],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/pairing-requests": {
+      "post": {
+        "operationId": "requestDevicePairing",
+        "tags": ["devices"],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "get": {
+        "operationId": "listPairingRequests",
+        "tags": ["devices"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/pairing-codes": {
+      "post": {
+        "operationId": "createPairingCode",
+        "tags": ["devices"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/pairing-codes/claim": {
+      "post": {
+        "operationId": "claimPairingCode",
+        "tags": ["devices"],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/pairing-requests/{pairingId}/approve": {
+      "post": {
+        "operationId": "approvePairing",
+        "tags": ["devices"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/PairingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/pairing-requests/{pairingId}/consume": {
+      "post": {
+        "operationId": "consumePairing",
+        "tags": ["devices"],
+        "parameters": [{ "$ref": "#/components/parameters/PairingId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "tags": ["devices"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/devices/{deviceId}/revoke": {
+      "post": {
+        "operationId": "revokeDevice",
+        "tags": ["devices"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/DeviceId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/focus-modes": {
+      "get": {
+        "operationId": "listFocusModes",
+        "tags": ["focus modes"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      },
+      "post": {
+        "operationId": "createFocusMode",
+        "tags": ["focus modes"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "201": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/focus-modes/{modeId}": {
+      "patch": {
+        "operationId": "updateFocusMode",
+        "tags": ["focus modes"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ModeId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      },
+      "delete": {
+        "operationId": "deleteFocusMode",
+        "tags": ["focus modes"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ModeId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/focus-sessions": {
+      "get": {
+        "operationId": "listFocusSessions",
+        "tags": ["focus sessions"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      },
+      "post": {
+        "operationId": "createFocusSession",
+        "tags": ["focus sessions"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "201": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/focus-sessions/{sessionId}": {
+      "patch": {
+        "operationId": "updateFocusSession",
+        "tags": ["focus sessions"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/SessionId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/reminders": {
+      "get": {
+        "operationId": "listReminders",
+        "tags": ["reminders"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/reminders/{occurrenceId}/transitions": {
+      "post": {
+        "operationId": "transitionReminder",
+        "tags": ["reminders"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/OccurrenceId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Json" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/check-ins": {
+      "get": {
+        "operationId": "listCheckIns",
+        "tags": ["check-ins"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      },
+      "post": {
+        "operationId": "createCheckIn",
+        "tags": ["check-ins"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "201": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/check-ins/{checkInId}": {
+      "delete": {
+        "operationId": "deleteCheckIn",
+        "tags": ["check-ins"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CheckInId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/search": {
+      "get": {
+        "operationId": "searchCheckIns",
+        "tags": ["search"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          { "name": "tagId", "in": "query", "schema": { "$ref": "#/components/schemas/Id" } },
+          { "name": "categoryId", "in": "query", "schema": { "$ref": "#/components/schemas/Id" } },
+          { "name": "sessionId", "in": "query", "schema": { "$ref": "#/components/schemas/Id" } },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked check-in results",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } }
+            }
+          }
+        }
+      }
+    },
+    "/sync/push": {
+      "post": {
+        "operationId": "pushSyncOperations",
+        "tags": ["synchronization"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SyncPushRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/sync/pull": {
+      "get": {
+        "operationId": "pullSyncOperations",
+        "tags": ["synchronization"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": { "type": "string", "pattern": "^[0-9]+$", "default": "0" }
+          }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/sync/ack": {
+      "post": {
+        "operationId": "acknowledgeSyncCursor",
+        "tags": ["synchronization"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/reports/daily": {
+      "get": {
+        "operationId": "dailyReport",
+        "tags": ["reports"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [
+          {
+            "name": "day",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date" }
+          },
+          { "name": "timezoneId", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/reports/heatmap": {
+      "get": {
+        "operationId": "yearlyHeatmap",
+        "tags": ["reports"],
+        "security": [{ "deviceSignature": [] }],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1970, "maximum": 9999 }
+          },
+          { "name": "timezoneId", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/backups": {
+      "post": {
+        "operationId": "registerBackup",
+        "tags": ["backups"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": { "201": { "$ref": "#/components/responses/Json" } }
+      },
+      "get": {
+        "operationId": "listBackups",
+        "tags": ["backups"],
+        "security": [{ "deviceSignature": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Json" } }
+      }
+    },
+    "/data": {
+      "delete": {
+        "operationId": "permanentlyDeleteOwnerData",
+        "tags": ["data"],
+        "security": [{ "deviceSignature": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/JsonBody" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Json" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-focuslog-signature",
+        "description": "Ed25519 signature. Also requires x-focuslog-device-id, x-focuslog-timestamp, and x-focuslog-nonce."
+      }
+    },
+    "parameters": {
+      "PairingId": {
+        "name": "pairingId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      },
+      "DeviceId": {
+        "name": "deviceId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      },
+      "ModeId": {
+        "name": "modeId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      },
+      "SessionId": {
+        "name": "sessionId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      },
+      "OccurrenceId": {
+        "name": "occurrenceId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      },
+      "CheckInId": {
+        "name": "checkInId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Id" }
+      }
+    },
+    "requestBodies": {
+      "JsonBody": {
+        "required": true,
+        "content": {
+          "application/json": { "schema": { "type": "object", "additionalProperties": true } }
+        }
+      }
+    },
+    "responses": {
+      "Json": {
+        "description": "Successful JSON response",
+        "content": { "application/json": { "schema": {} } }
+      },
+      "Error": {
+        "description": "Structured API error",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      }
+    },
+    "schemas": {
+      "Id": {
+        "type": "string",
+        "minLength": 26,
+        "maxLength": 26,
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            }
+          }
+        }
+      },
+      "SyncOperation": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "deviceSequence",
+          "entityType",
+          "entityId",
+          "kind",
+          "payload",
+          "occurredAt"
+        ],
+        "properties": {
+          "operationId": { "$ref": "#/components/schemas/Id" },
+          "deviceSequence": { "type": "integer", "minimum": 0 },
+          "entityType": { "type": "string", "maxLength": 80 },
+          "entityId": { "$ref": "#/components/schemas/Id" },
+          "kind": { "type": "string", "maxLength": 120 },
+          "baseVersion": { "$ref": "#/components/schemas/Id" },
+          "payload": { "type": "object", "additionalProperties": true },
+          "occurredAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SyncPushRequest": {
+        "type": "object",
+        "required": ["operations"],
+        "properties": {
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": { "$ref": "#/components/schemas/SyncOperation" }
+          }
+        }
+      },
+      "SearchResult": {
+        "type": "object",
+        "required": ["id", "body", "submittedAt", "rank"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Id" },
+          "body": { "type": "string" },
+          "submittedAt": { "type": "string", "format": "date-time" },
+          "rank": { "type": "number" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/SearchResult" } }
+        }
+      }
+    }
+  }
+}

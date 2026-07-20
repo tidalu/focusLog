@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: focuslog-backend
+    runtime: docker
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/ready
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_HOST
+        value: 0.0.0.0
+      - key: RUN_MIGRATIONS
+        value: 'true'
+      - key: REQUIRE_TLS
+        value: 'true'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: focuslog-postgres
+          property: connectionString
+databases:
+  - name: focuslog-postgres
+    databaseName: focuslog
+    user: focuslog
