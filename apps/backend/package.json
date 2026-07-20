@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --pool=threads --maxWorkers=1 --no-file-parallelism",
+    "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:watch": "vitest",
     "test:migrations": "vitest run tests/migration-contract.test.ts",
     "prisma:migrate:dev": "prisma migrate dev",
