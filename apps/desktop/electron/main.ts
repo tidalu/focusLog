@@ -47,6 +47,8 @@ const reminderOverlays = new Map<string, BrowserWindow>();
 let isQuitting = false;
 let suspendedAt: Date | undefined;
 let websocketClient: FocusLogWebSocketClient | undefined;
+const focusLogApiUrl =
+  process.env.FOCUSLOG_API_URL?.trim() || 'https://focuslog-backend.onrender.com';
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -165,11 +167,8 @@ app
       suspendedAt = undefined;
     });
     powerMonitor.on('unlock-screen', () => scheduler?.recover('unlock'));
-    if (process.env.FOCUSLOG_API_URL) {
-      const client = new AuthenticatedFocusLogClient(
-        new URL(process.env.FOCUSLOG_API_URL),
-        identity!
-      );
+    if (focusLogApiUrl) {
+      const client = new AuthenticatedFocusLogClient(new URL(focusLogApiUrl), identity!);
       const synchronize = () =>
         void drainOutbox(database, client, new Date(), deviceId).then(() => {
           for (const [occurrenceId, overlay] of reminderOverlays) {
@@ -189,7 +188,7 @@ app
       synchronize();
       setInterval(synchronize, 30_000);
       websocketClient = new FocusLogWebSocketClient(
-        new URL(process.env.FOCUSLOG_API_URL),
+        new URL(focusLogApiUrl),
         identity!,
         synchronize,
         () => {
@@ -217,10 +216,10 @@ app
       ownerId,
       deviceId,
       fingerprint: identity!.fingerprint,
-      registered: Boolean(process.env.FOCUSLOG_API_URL)
+      registered: Boolean(focusLogApiUrl)
     }));
     ipcMain.handle('focuslog:bootstrap-device', async (_event, apiUrl?: string) => {
-      const address = apiUrl || process.env.FOCUSLOG_API_URL;
+      const address = apiUrl || focusLogApiUrl;
       if (!address) throw new Error('Set FOCUSLOG_API_URL before registering this owner device.');
       const client = new AuthenticatedFocusLogClient(new URL(address), identity!);
       return client.bootstrap('This Windows device');
@@ -293,9 +292,9 @@ app
     ipcMain.handle('focuslog:permanent-delete', async (_event, confirmation: string) => {
       if (confirmation !== 'DELETE ALL FOCUSLOG DATA')
         throw new Error('Permanent deletion confirmation did not match.');
-      if (process.env.FOCUSLOG_API_URL) {
+      if (focusLogApiUrl) {
         await new AuthenticatedFocusLogClient(
-          new URL(process.env.FOCUSLOG_API_URL),
+          new URL(focusLogApiUrl),
           identity!
         ).permanentlyDeleteOwnerData();
       }
@@ -459,26 +458,22 @@ app
       (_event, requested: ReportSelection) => reporting.daily(requested).timeline
     );
     ipcMain.handle('focuslog:create-pairing', () => {
-      if (!process.env.FOCUSLOG_API_URL)
+      if (!focusLogApiUrl)
         throw new Error('Set FOCUSLOG_API_URL and register this owner device before pairing.');
       return new AuthenticatedFocusLogClient(
-        new URL(process.env.FOCUSLOG_API_URL),
+        new URL(focusLogApiUrl),
         identity!
       ).createPairingCode();
     });
     ipcMain.handle('focuslog:pending-pairings', () => {
-      if (!process.env.FOCUSLOG_API_URL) throw new Error('Set FOCUSLOG_API_URL before pairing.');
-      return new AuthenticatedFocusLogClient(
-        new URL(process.env.FOCUSLOG_API_URL),
-        identity!
-      ).pendingPairings();
+      if (!focusLogApiUrl) throw new Error('Set FOCUSLOG_API_URL before pairing.');
+      return new AuthenticatedFocusLogClient(new URL(focusLogApiUrl), identity!).pendingPairings();
     });
     ipcMain.handle('focuslog:approve-pairing', (_event, pairingId: string) => {
-      if (!process.env.FOCUSLOG_API_URL) throw new Error('Set FOCUSLOG_API_URL before pairing.');
-      return new AuthenticatedFocusLogClient(
-        new URL(process.env.FOCUSLOG_API_URL),
-        identity!
-      ).approvePairing(pairingId);
+      if (!focusLogApiUrl) throw new Error('Set FOCUSLOG_API_URL before pairing.');
+      return new AuthenticatedFocusLogClient(new URL(focusLogApiUrl), identity!).approvePairing(
+        pairingId
+      );
     });
     createWindow();
 

@@ -117,7 +117,9 @@ jobs:
         working-directory: apps/mobile
       - run: flutter test --dart-define=FOCUSLOG_INTEGRATION_API_URL=http://127.0.0.1:3000
         working-directory: apps/mobile
-      - run: flutter build apk --release
+      - run: >-
+          flutter build apk --release
+          --dart-define=FOCUSLOG_API_URL=https://focuslog-backend.onrender.com
         working-directory: apps/mobile
       - uses: actions/upload-artifact@v4
         with:

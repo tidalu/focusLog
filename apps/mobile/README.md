@@ -18,5 +18,5 @@ For a signed release APK, copy `android/key.properties.example` to `android/key.
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter test
-flutter build apk --release --dart-define=FOCUSLOG_API_URL=https://your-server.example
+flutter build apk --release --dart-define=FOCUSLOG_API_URL=https://focuslog-backend.onrender.com
 ```
