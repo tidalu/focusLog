@@ -9,7 +9,7 @@
     "lint": "turbo run lint",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "test": "turbo run test",
+    "test": "turbo run test --concurrency=1",
     "typecheck": "turbo run typecheck",
     "contracts:generate": "node scripts/generate-contracts.mjs",
     "contracts:check": "node scripts/generate-contracts.mjs --check",
