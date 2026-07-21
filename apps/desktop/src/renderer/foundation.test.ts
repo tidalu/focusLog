@@ -75,7 +75,7 @@ describe('desktop foundation', () => {
     const reportsSource = readFileSync(resolve(import.meta.dirname, 'ReportsPage.tsx'), 'utf8');
     const calendarSource = readFileSync(resolve(import.meta.dirname, 'CalendarPage.tsx'), 'utf8');
 
-    expect(historySource).toContain("['Morning', 'Afternoon', 'Evening']");
+    expect(historySource).toContain("['Evening', 'Afternoon', 'Morning']");
     expect(historySource).toContain('category:study');
     expect(historySource).toContain('journal-card');
     expect(reportsSource).toContain('<h2>Categories</h2>');
