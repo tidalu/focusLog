@@ -79,5 +79,29 @@ export const desktopMigrations: readonly SqliteMigration[] = [
       `CREATE INDEX check_in_tags_tag_check_in_idx ON check_in_tags(tag_id, check_in_id)`,
       `CREATE INDEX check_ins_owner_category_session_idx ON check_ins(owner_id, category_id, focus_session_id, submitted_at)`
     ]
+  },
+  {
+    version: 6,
+    name: 'multi_section_category_taxonomy',
+    statements: [
+      `ALTER TABLE categories ADD COLUMN parent_id TEXT REFERENCES categories(id)`,
+      `ALTER TABLE categories ADD COLUMN path TEXT`,
+      `ALTER TABLE categories ADD COLUMN depth INTEGER NOT NULL DEFAULT 1`,
+      `UPDATE check_ins SET category_id = (SELECT canonical.id FROM categories AS current JOIN categories AS canonical ON canonical.owner_id = current.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(current.name)) WHERE current.id = check_ins.category_id ORDER BY canonical.created_at, canonical.id LIMIT 1) WHERE category_id IS NOT NULL`,
+      `DELETE FROM categories WHERE EXISTS (SELECT 1 FROM categories AS canonical WHERE canonical.owner_id = categories.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(categories.name)) AND (canonical.created_at < categories.created_at OR (canonical.created_at = categories.created_at AND canonical.id < categories.id)))`,
+      `UPDATE categories SET path = LOWER(TRIM(name)) WHERE path IS NULL`,
+      `CREATE UNIQUE INDEX categories_owner_path_idx ON categories(owner_id, path)`,
+      `CREATE INDEX categories_owner_parent_idx ON categories(owner_id, parent_id, deleted_at)`,
+      `CREATE TABLE log_sections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, check_in_id TEXT NOT NULL, revision_id TEXT NOT NULL, category_id TEXT, position INTEGER NOT NULL, body TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL, timezone_id TEXT NOT NULL, version TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(revision_id, position), FOREIGN KEY(owner_id) REFERENCES owners(id), FOREIGN KEY(check_in_id) REFERENCES check_ins(id), FOREIGN KEY(revision_id) REFERENCES check_in_revisions(id), FOREIGN KEY(category_id) REFERENCES categories(id))`,
+      `INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) SELECT check_in_revisions.id, check_ins.owner_id, check_ins.id, check_in_revisions.id, check_ins.category_id, 0, check_in_revisions.body, '{}', check_ins.submitted_at, check_ins.timezone_id, check_in_revisions.id, check_in_revisions.created_at FROM check_in_revisions JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id`,
+      `CREATE INDEX log_sections_check_in_revision_position_idx ON log_sections(check_in_id, revision_id, position)`,
+      `CREATE INDEX log_sections_owner_occurred_idx ON log_sections(owner_id, occurred_at)`,
+      `CREATE INDEX log_sections_category_occurred_idx ON log_sections(category_id, occurred_at)`,
+      `CREATE VIRTUAL TABLE log_sections_fts USING fts5(body, content='log_sections', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')`,
+      `CREATE TRIGGER log_sections_fts_insert AFTER INSERT ON log_sections BEGIN INSERT INTO log_sections_fts(rowid, body) VALUES (new.rowid, new.body); END`,
+      `CREATE TRIGGER log_sections_fts_delete AFTER DELETE ON log_sections BEGIN INSERT INTO log_sections_fts(log_sections_fts, rowid, body) VALUES ('delete', old.rowid, old.body); END`,
+      `CREATE TRIGGER log_sections_fts_update AFTER UPDATE OF body ON log_sections BEGIN INSERT INTO log_sections_fts(log_sections_fts, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO log_sections_fts(rowid, body) VALUES (new.rowid, new.body); END`,
+      `INSERT INTO log_sections_fts(log_sections_fts) VALUES ('rebuild')`
+    ]
   }
 ];

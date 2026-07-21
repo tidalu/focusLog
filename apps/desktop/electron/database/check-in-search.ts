@@ -21,6 +21,13 @@ export interface CheckInSearchResult {
   readonly device: string;
   readonly responseDelaySeconds: number | null;
   readonly focusSessionId: string | null;
+  readonly sections: readonly {
+    id: string;
+    path: string;
+    body: string;
+    metadata: Record<string, string>;
+    position: number;
+  }[];
 }
 
 function ftsQuery(value: string): string {
@@ -86,17 +93,30 @@ export function searchCheckIns(
     'check_ins.deleted_at IS NULL',
     'check_in_revisions.deleted_at IS NULL'
   ];
-  const parameters: Array<string | number> = [ownerId];
+  const parameters: Array<string | number> = query
+    ? [query, `%${parsedSearch.text.toLocaleLowerCase()}%`, ownerId]
+    : [ownerId];
   if (filters.categoryId) {
-    clauses.push('check_ins.category_id = ?');
-    parameters.push(filters.categoryId);
+    const selected = database
+      .prepare('SELECT path FROM categories WHERE id = ? AND owner_id = ?')
+      .get(filters.categoryId, ownerId) as { path: string } | undefined;
+    if (selected) {
+      clauses.push('(section_categories.path = ? OR section_categories.path LIKE ?)');
+      parameters.push(selected.path, `${selected.path}/%`);
+    }
   }
   if (parsedSearch.category) {
     if (parsedSearch.category === 'uncategorized') {
-      clauses.push('check_ins.category_id IS NULL');
+      clauses.push('log_sections.category_id IS NULL');
     } else {
-      clauses.push('LOWER(categories.name) = ?');
-      parameters.push(parsedSearch.category);
+      clauses.push(
+        '(LOWER(section_categories.path) = ? OR LOWER(section_categories.path) LIKE ? OR LOWER(section_categories.path) LIKE ?)'
+      );
+      parameters.push(
+        parsedSearch.category,
+        `${parsedSearch.category}/%`,
+        `%/${parsedSearch.category}`
+      );
     }
   }
   if (parsedSearch.device) {
@@ -128,33 +148,83 @@ export function searchCheckIns(
     );
     parameters.push(filters.tagId);
   }
-  if (query) {
-    clauses.push('check_in_revisions_fts MATCH ?');
-    parameters.push(query);
-  }
-  parameters.push(limit);
-  const rank = query ? '-bm25(check_in_revisions_fts, 10.0)' : '0.0';
-  const ftsJoin = query
-    ? 'JOIN check_in_revisions_fts ON check_in_revisions_fts.rowid = check_in_revisions.rowid'
+  parameters.push(Math.min(10_000, limit * 100));
+  const matchedSections = query
+    ? `WITH matched_sections AS (
+         SELECT rowid, -bm25(log_sections_fts, 10.0) AS rank
+           FROM log_sections_fts WHERE log_sections_fts MATCH ?
+         UNION ALL
+         SELECT log_sections.rowid, 0.25 AS rank
+           FROM log_sections
+           LEFT JOIN categories ON categories.id = log_sections.category_id
+          WHERE LOWER(COALESCE(categories.path, 'uncategorized')) LIKE ?
+       ), ranked_sections AS (
+         SELECT rowid, MAX(rank) AS rank FROM matched_sections GROUP BY rowid
+       )`
     : '';
-  return database
+  const rank = query ? 'ranked_sections.rank' : '0.0';
+  const matchedJoin = query
+    ? 'JOIN ranked_sections ON ranked_sections.rowid = log_sections.rowid'
+    : '';
+  type SearchRow = Omit<CheckInSearchResult, 'sections'> & {
+    sectionId: string;
+    sectionPath: string;
+    sectionBody: string;
+    metadataJson: string;
+    sectionPosition: number;
+  };
+  const rows = database
     .prepare(
-      `SELECT check_ins.id, check_in_revisions.body, check_ins.submitted_at AS submittedAt,
-              ${rank} AS rank, COALESCE(categories.name, 'Uncategorized') AS category,
+      `${matchedSections}
+       SELECT check_ins.id, check_in_revisions.body, check_ins.submitted_at AS submittedAt,
+              ${rank} AS rank, COALESCE(section_categories.path, 'Uncategorized') AS category,
               COALESCE(devices.platform, 'unknown') AS device,
               CASE WHEN reminder_occurrences.scheduled_at IS NULL THEN NULL ELSE
                 MAX(0, CAST(ROUND((julianday(check_ins.submitted_at) - julianday(reminder_occurrences.scheduled_at)) * 86400) AS INTEGER))
               END AS responseDelaySeconds,
-              check_ins.focus_session_id AS focusSessionId
+              check_ins.focus_session_id AS focusSessionId,
+              log_sections.id AS sectionId,
+              COALESCE(section_categories.path, 'Uncategorized') AS sectionPath,
+              log_sections.body AS sectionBody,
+              log_sections.metadata_json AS metadataJson,
+              log_sections.position AS sectionPosition
        FROM check_ins
        JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id
-       LEFT JOIN categories ON categories.id = check_ins.category_id
+       JOIN log_sections ON log_sections.revision_id = check_ins.current_revision_id
+       ${matchedJoin}
+       LEFT JOIN categories AS section_categories ON section_categories.id = log_sections.category_id
        LEFT JOIN devices ON devices.id = check_in_revisions.author_device_id
        LEFT JOIN reminder_occurrences ON reminder_occurrences.id = check_ins.reminder_occurrence_id
-       ${ftsJoin}
        WHERE ${clauses.join(' AND ')}
-       ORDER BY rank DESC, check_ins.submitted_at DESC, check_ins.id
+       ORDER BY rank DESC, check_ins.submitted_at DESC, check_ins.id, log_sections.position
        LIMIT ?`
     )
-    .all(...parameters) as CheckInSearchResult[];
+    .all(...parameters) as SearchRow[];
+  const grouped = new Map<string, CheckInSearchResult>();
+  for (const row of rows) {
+    const section = {
+      id: row.sectionId,
+      path: row.sectionPath,
+      body: row.sectionBody,
+      metadata: JSON.parse(row.metadataJson) as Record<string, string>,
+      position: row.sectionPosition
+    };
+    const current = grouped.get(row.id);
+    if (current) {
+      (current.sections as (typeof section)[]).push(section);
+      continue;
+    }
+    grouped.set(row.id, {
+      id: row.id,
+      body: row.body,
+      submittedAt: row.submittedAt,
+      rank: row.rank,
+      category: row.category,
+      device: row.device,
+      responseDelaySeconds: row.responseDelaySeconds,
+      focusSessionId: row.focusSessionId,
+      sections: [section]
+    });
+  }
+  return [...grouped.values()].slice(0, limit);
 }

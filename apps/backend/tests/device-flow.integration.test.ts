@@ -81,6 +81,7 @@ integration('device identity, pairing, authenticated synchronization, and revoca
   }, 60_000);
 
   afterAll(async () => {
+    await prisma.logSection.deleteMany({ where: { ownerId: owner.ownerId } });
     await prisma.checkInRevision.deleteMany({
       where: { checkIn: { ownerId: owner.ownerId } }
     });

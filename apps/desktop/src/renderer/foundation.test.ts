@@ -90,7 +90,7 @@ describe('desktop foundation', () => {
   it('offers inferred-category completion without a category management form', () => {
     const rendererSource = readFileSync(resolve(import.meta.dirname, 'App.tsx'), 'utf8');
 
-    expect(rendererSource).toContain('Begin with <code>&lt;category&gt;</code>');
+    expect(rendererSource).toContain('<code>&lt;study&gt;&lt;leetcode&gt;</code>');
     expect(rendererSource).toContain('categorySuggestions');
     expect(rendererSource).not.toContain('Create category');
     expect(rendererSource).not.toContain('Manage categories');

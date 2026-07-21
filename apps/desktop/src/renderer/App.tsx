@@ -244,11 +244,20 @@ export function App(): React.JSX.Element {
     [page]
   );
   const categorySuggestions = useMemo(() => {
-    const match = /^<([^>]*)$/u.exec(manualText.trimStart());
+    const match = /(?:^|\n)((?:<[^>\n]+>)*)<([^>\n]*)$/u.exec(manualText);
     if (!match) return [];
-    const prefix = (match[1] ?? '').toLocaleLowerCase();
+    const parentPath = [...(match[1] ?? '').matchAll(/<([^>]+)>/gu)].map((token) =>
+      (token[1] ?? '').trim().toLocaleLowerCase()
+    );
+    const prefix = (match[2] ?? '').trim().toLocaleLowerCase();
     return knownCategories
-      .filter((category) => category.name.toLocaleLowerCase().startsWith(prefix))
+      .map((category) => ({ ...category, segments: category.name.split('/') }))
+      .filter(
+        (category) =>
+          category.segments.length === parentPath.length + 1 &&
+          parentPath.every((segment, index) => category.segments[index] === segment) &&
+          (category.segments.at(-1) ?? '').startsWith(prefix)
+      )
       .slice(0, 6);
   }, [knownCategories, manualText]);
 
@@ -721,19 +730,29 @@ export function App(): React.JSX.Element {
             <span className="section-label">Quick capture</span>
             <h2 id="manual-title">Write a manual entry</h2>
             <p>
-              Begin with <code>&lt;category&gt;</code> to organize automatically. Without one, the
-              entry stays Uncategorized.
+              Use one or more tag blocks per section, such as{' '}
+              <code>&lt;study&gt;&lt;leetcode&gt;</code>. Start another tagged line to add a second
+              section.
             </p>
             <textarea
               autoFocus
               value={manualText}
               onChange={(event) => setManualText(event.target.value)}
-              placeholder="<study> Solved a sliding window problem…"
+              placeholder={
+                '<study><leetcode>\nSolved a sliding window problem…\n\n<sleep>\nSlept well.'
+              }
             />
             {categorySuggestions.length > 0 && (
               <div className="category-autocomplete" aria-label="Category suggestions">
                 {categorySuggestions.map((category) => (
-                  <button key={category.id} onClick={() => setManualText(`<${category.name}> `)}>
+                  <button
+                    key={category.id}
+                    onClick={() =>
+                      setManualText(
+                        `${manualText.slice(0, manualText.lastIndexOf('<'))}<${category.segments.at(-1)}> `
+                      )
+                    }
+                  >
                     &lt;{category.name}&gt;
                   </button>
                 ))}

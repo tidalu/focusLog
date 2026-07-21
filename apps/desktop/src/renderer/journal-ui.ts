@@ -50,7 +50,10 @@ export const categoryStyle = (category: string): CSSProperties =>
 
 export function categoryLabel(category: string): string {
   if (category === 'Uncategorized') return category;
-  return category.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+  return category
+    .split('/')
+    .map((segment) => segment.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase()))
+    .join(' / ');
 }
 
 export function entryText(body: string): string {

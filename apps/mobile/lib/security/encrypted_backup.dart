@@ -13,7 +13,7 @@ import '../identity/device_identity.dart';
 
 const _magic = 'FOCUSLOG-ENCRYPTED-BACKUP';
 const _formatVersion = 1;
-const _schemaVersion = 3;
+const _schemaVersion = 4;
 final _hkdfInfo = utf8.encode('FocusLog portable backup v1');
 
 const portableTables = <String>[
@@ -27,6 +27,7 @@ const portableTables = <String>[
   'categories',
   'check_ins',
   'check_in_revisions',
+  'log_sections',
   'tags',
   'check_in_tags',
   'sync_operations',
@@ -233,6 +234,9 @@ class MobileBackupService {
     }
     for (final table in portableTables) {
       final snapshot = tables[table];
+      if (table == 'log_sections' && version < 4 && snapshot == null) {
+        continue;
+      }
       if (snapshot is! Map<String, dynamic> ||
           snapshot['columns'] is! List ||
           snapshot['rows'] is! List) {
@@ -269,7 +273,15 @@ class MobileBackupService {
           await target.customStatement('DELETE FROM "$table"');
         }
         for (final table in portableTables) {
-          final snapshot = tables[table] as Map<String, dynamic>;
+          final snapshot = tables[table];
+          if (snapshot == null &&
+              table == 'log_sections' &&
+              (payload['schemaVersion'] as int) < 4) {
+            continue;
+          }
+          if (snapshot is! Map<String, dynamic>) {
+            throw FormatException('Backup table $table is missing.');
+          }
           final columns = (snapshot['columns'] as List).cast<String>();
           final rows = snapshot['rows'] as List;
           if (rows.isEmpty) continue;
@@ -288,6 +300,22 @@ class MobileBackupService {
               values,
             );
           }
+        }
+        if ((payload['schemaVersion'] as int) < 4) {
+          await target.customStatement('''
+            INSERT INTO log_sections (
+              id, owner_id, check_in_id, revision_id, category_id, position,
+              body, metadata_json, occurred_at, timezone_id, version, created_at
+            )
+            SELECT
+              check_in_revisions.id, check_ins.owner_id, check_ins.id,
+              check_in_revisions.id, check_ins.category_id, 0,
+              check_in_revisions.body, '{}', check_ins.submitted_at,
+              check_ins.timezone_id, check_in_revisions.id,
+              check_in_revisions.created_at
+            FROM check_in_revisions
+            JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id
+          ''');
         }
       });
     } finally {

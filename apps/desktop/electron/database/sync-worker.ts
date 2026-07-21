@@ -1,13 +1,26 @@
 import { ulid } from 'ulid';
 
 import type { DesktopDatabase } from './database.js';
-import { updateInferredCategory } from './category-inference.js';
+import { materializeLogSections, type MaterializedLogSection } from './category-inference.js';
 import { readOwnerSettings, writeOwnerSettings } from '../reminders/preferences.js';
 
 interface PushResult {
   operationId: string;
   status: 'accepted' | 'duplicate' | 'conflict';
   conflictId?: string;
+}
+
+function remoteSections(payload: Record<string, unknown>): MaterializedLogSection[] | undefined {
+  if (!Array.isArray(payload.sections)) return undefined;
+  return payload.sections.filter(
+    (section): section is MaterializedLogSection =>
+      typeof section === 'object' &&
+      section !== null &&
+      typeof (section as Record<string, unknown>).id === 'string' &&
+      Array.isArray((section as Record<string, unknown>).categoryPath) &&
+      typeof (section as Record<string, unknown>).body === 'string' &&
+      Number.isInteger((section as Record<string, unknown>).position)
+  );
 }
 
 export interface SyncTransport {
@@ -65,7 +78,8 @@ export async function drainOutbox(
         now,
         localDeviceId
       );
-    } catch {
+    } catch (error) {
+      console.warn('FocusLog synchronization pull failed; cursor was not advanced.', error);
       // The durable cursor is not advanced when pull/application fails. The
       // periodic worker safely retries the same stream page.
     }
@@ -463,13 +477,15 @@ function applyReminderCompletion(
       change.operationId,
       payload.completedAt
     );
-  updateInferredCategory(
-    database,
+  materializeLogSections(database, {
     ownerId,
-    String(payload.checkInId),
-    String(payload.body),
-    String(payload.completedAt)
-  );
+    checkInId: String(payload.checkInId),
+    revisionId: String(payload.revisionId),
+    body: String(payload.body),
+    occurredAt: String(payload.completedAt),
+    timezoneId: occurrence.timezone_id,
+    sections: remoteSections(payload)
+  });
 }
 
 function applyCheckInCreate(
@@ -520,13 +536,15 @@ function applyCheckInCreate(
       change.operationId,
       payload.submittedAt
     );
-  updateInferredCategory(
-    database,
+  materializeLogSections(database, {
     ownerId,
-    entityId,
-    String(payload.body),
-    String(payload.submittedAt)
-  );
+    checkInId: entityId,
+    revisionId: String(payload.revisionId),
+    body: String(payload.body),
+    occurredAt: String(payload.submittedAt),
+    timezoneId: String(payload.timezoneId),
+    sections: remoteSections(payload)
+  });
 }
 
 function applyCheckInRevision(
@@ -538,9 +556,17 @@ function applyCheckInRevision(
 ): void {
   const entityId = String(change.entityId);
   const current = database
-    .prepare('SELECT current_revision_id, deleted_at FROM check_ins WHERE id = ? AND owner_id = ?')
+    .prepare(
+      'SELECT current_revision_id, deleted_at, timezone_id, submitted_at FROM check_ins WHERE id = ? AND owner_id = ?'
+    )
     .get(entityId, ownerId) as
-    { current_revision_id: string; deleted_at: string | null } | undefined;
+    | {
+        current_revision_id: string;
+        deleted_at: string | null;
+        timezone_id: string;
+        submitted_at: string;
+      }
+    | undefined;
   if (!current || current.deleted_at) {
     storePulledConflict(database, ownerId, change, payload, now);
     return;
@@ -568,13 +594,15 @@ function applyCheckInRevision(
       'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
     )
     .run(payload.revisionId, payload.revisionId, now.toISOString(), entityId);
-  updateInferredCategory(
-    database,
+  materializeLogSections(database, {
     ownerId,
-    entityId,
-    String(payload.body),
-    String(payload.createdAt)
-  );
+    checkInId: entityId,
+    revisionId: String(payload.revisionId),
+    body: String(payload.body),
+    occurredAt: current.submitted_at,
+    timezoneId: current.timezone_id,
+    sections: remoteSections(payload)
+  });
 }
 
 function applyCheckInDeletion(

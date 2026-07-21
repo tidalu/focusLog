@@ -33,39 +33,116 @@ class SyncWorker {
   final Future<List<ConnectivityResult>> Function() _connectivityCheck;
   final DateTime Function() _clock;
 
-  Future<String?> _inferredCategoryId(String body, DateTime occurredAt) async {
-    final parsed = parseJournalEntry(body);
-    if (!parsed.hasCategoryToken) return null;
-    final existing = await database.customSelect(
-      'SELECT id, deleted_at FROM categories WHERE owner_id = ? AND name = ?',
-      variables: [
-        Variable.withString(identity.ownerId),
-        Variable.withString(parsed.category),
-      ],
-    ).getSingleOrNull();
-    if (existing != null) {
-      final categoryId = existing.read<String>('id');
-      if (existing.readNullable<DateTime>('deleted_at') != null) {
+  Future<String?> _ensureCategoryPath(
+    List<String> segments,
+    DateTime occurredAt,
+  ) async {
+    final normalizedSegments = segments
+        .map(normalizeJournalCategory)
+        .where((segment) => segment.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedSegments.isEmpty) return null;
+    String? parentId;
+    String? leafId;
+    for (var depth = 1; depth <= normalizedSegments.length; depth += 1) {
+      final path = normalizedSegments.take(depth).join('/');
+      final existing = await database.customSelect(
+        'SELECT id, deleted_at FROM categories WHERE owner_id = ? AND path = ?',
+        variables: [
+          Variable.withString(identity.ownerId),
+          Variable.withString(path),
+        ],
+      ).getSingleOrNull();
+      if (existing != null) {
+        leafId = existing.read<String>('id');
+        if (existing.readNullable<DateTime>('deleted_at') != null) {
+          await database.customStatement(
+            'UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?',
+            [occurredAt, leafId],
+          );
+        }
+      } else {
+        leafId = generateSyncId();
         await database.customStatement(
-          'UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?',
-          [occurredAt, categoryId],
+          'INSERT INTO categories (id, owner_id, parent_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            leafId,
+            identity.ownerId,
+            parentId,
+            normalizedSegments[depth - 1],
+            path,
+            depth,
+            generateSyncId(),
+            occurredAt,
+            occurredAt,
+          ],
         );
       }
-      return categoryId;
+      parentId = leafId;
     }
-    final categoryId = generateSyncId();
+    return leafId;
+  }
+
+  List<Map<String, dynamic>> _remoteSections(
+    Map<String, dynamic> payload,
+    String body,
+  ) {
+    final raw = payload['sections'];
+    if (raw is List && raw.isNotEmpty) {
+      return raw
+          .whereType<Map>()
+          .map((section) => section.cast<String, dynamic>())
+          .toList(growable: false);
+    }
+    return parseJournalLog(body)
+        .sections
+        .map((section) => <String, dynamic>{
+              'id': generateSyncId(),
+              'categoryPath': section.categoryPath,
+              'body': section.text,
+              'metadata': section.metadata,
+              'position': section.position,
+            })
+        .toList(growable: false);
+  }
+
+  Future<void> _materializeSections({
+    required String checkInId,
+    required String revisionId,
+    required String body,
+    required DateTime occurredAt,
+    required String timezoneId,
+    required Map<String, dynamic> payload,
+  }) async {
+    String? firstCategoryId;
+    for (final section in _remoteSections(payload, body)) {
+      final categoryId = await _ensureCategoryPath(
+        (section['categoryPath'] as List).cast<String>(),
+        occurredAt,
+      );
+      firstCategoryId ??= categoryId;
+      await database.customStatement(
+        'INSERT OR IGNORE INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          section['id'],
+          identity.ownerId,
+          checkInId,
+          revisionId,
+          categoryId,
+          section['position'],
+          section['body'],
+          jsonEncode(section['metadata'] ?? const <String, String>{}),
+          occurredAt,
+          timezoneId,
+          revisionId,
+          occurredAt,
+        ],
+      );
+    }
     await database.customStatement(
-      'INSERT INTO categories (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        categoryId,
-        identity.ownerId,
-        parsed.category,
-        generateSyncId(),
-        occurredAt,
-        occurredAt,
-      ],
+      'UPDATE check_ins SET category_id = ? WHERE id = ?',
+      [firstCategoryId, checkInId],
     );
-    return categoryId;
   }
 
   Future<SyncResult> synchronize() async {
@@ -483,10 +560,6 @@ class SyncWorker {
         ],
       );
     }
-    final categoryId = await _inferredCategoryId(
-      payload['body'] as String,
-      completedAt,
-    );
     await database.customStatement(
       'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
@@ -494,7 +567,7 @@ class SyncWorker {
         identity.ownerId,
         occurrenceId,
         occurrence.read<String>('focus_session_id'),
-        categoryId,
+        null,
         payload['revisionId'],
         completedAt,
         occurrence.read<String>('timezone_id'),
@@ -513,6 +586,14 @@ class SyncWorker {
         change['operationId'],
         completedAt,
       ],
+    );
+    await _materializeSections(
+      checkInId: payload['checkInId'] as String,
+      revisionId: payload['revisionId'] as String,
+      body: payload['body'] as String,
+      occurredAt: completedAt,
+      timezoneId: occurrence.read<String>('timezone_id'),
+      payload: payload,
     );
   }
 
@@ -537,16 +618,12 @@ class SyncWorker {
       return;
     }
     final submittedAt = DateTime.parse(payload['submittedAt'] as String);
-    final categoryId = await _inferredCategoryId(
-      payload['body'] as String,
-      submittedAt,
-    );
     await database.customStatement(
       'INSERT INTO check_ins (id, owner_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         entityId,
         identity.ownerId,
-        categoryId,
+        null,
         payload['revisionId'],
         submittedAt,
         payload['timezoneId'],
@@ -566,6 +643,14 @@ class SyncWorker {
         submittedAt
       ],
     );
+    await _materializeSections(
+      checkInId: entityId,
+      revisionId: payload['revisionId'] as String,
+      body: payload['body'] as String,
+      occurredAt: submittedAt,
+      timezoneId: payload['timezoneId'] as String,
+      payload: payload,
+    );
   }
 
   Future<void> _applyRevision(
@@ -584,10 +669,10 @@ class SyncWorker {
       return;
     }
     final createdAt = DateTime.parse(payload['createdAt'] as String);
-    final categoryId = await _inferredCategoryId(
-      payload['body'] as String,
-      createdAt,
-    );
+    final checkIn = await database.customSelect(
+      'SELECT submitted_at, timezone_id FROM check_ins WHERE id = ?',
+      variables: [Variable.withString(entityId)],
+    ).getSingle();
     await database.customStatement(
       'INSERT OR IGNORE INTO check_in_revisions (id, check_in_id, parent_revision_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
@@ -601,14 +686,21 @@ class SyncWorker {
       ],
     );
     await database.customStatement(
-      'UPDATE check_ins SET category_id = ?, current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
+      'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
       [
-        categoryId,
         payload['revisionId'],
         payload['revisionId'],
         DateTime.now().toUtc(),
         entityId
       ],
+    );
+    await _materializeSections(
+      checkInId: entityId,
+      revisionId: payload['revisionId'] as String,
+      body: payload['body'] as String,
+      occurredAt: checkIn.read<DateTime>('submitted_at'),
+      timezoneId: checkIn.read<String>('timezone_id'),
+      payload: payload,
     );
   }
 
@@ -738,7 +830,9 @@ class SyncWorker {
   void _ensureSuccess(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw http.ClientException(
-          'Sync server returned ${response.statusCode}.', endpoint);
+        'Sync server returned ${response.statusCode}: ${response.body}',
+        endpoint,
+      );
     }
   }
 

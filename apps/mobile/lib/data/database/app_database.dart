@@ -130,12 +130,33 @@ class ReminderTransitions extends Table {
 class Categories extends Table {
   TextColumn get id => text()();
   TextColumn get ownerId => text()();
+  TextColumn get parentId => text().nullable()();
   TextColumn get name => text()();
+  TextColumn get path => text().nullable()();
+  IntColumn get depth => integer().withDefault(const Constant(1))();
   TextColumn get color => text().nullable()();
   TextColumn get version => text()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+class LogSections extends Table {
+  TextColumn get id => text()();
+  TextColumn get ownerId => text()();
+  TextColumn get checkInId => text()();
+  TextColumn get revisionId => text()();
+  TextColumn get categoryId => text().nullable()();
+  IntColumn get position => integer()();
+  TextColumn get body => text()();
+  TextColumn get metadataJson => text().withDefault(const Constant('{}'))();
+  DateTimeColumn get occurredAt => dateTime()();
+  TextColumn get timezoneId => text()();
+  TextColumn get version => text()();
+  DateTimeColumn get createdAt => dateTime()();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -325,6 +346,7 @@ class Tombstones extends Table {
   ReminderOccurrences,
   ReminderTransitions,
   Categories,
+  LogSections,
   CheckIns,
   CheckInRevisions,
   Tags,
@@ -355,7 +377,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   Future<void> _ensureCheckInFts({required bool rebuild}) async {
     await customStatement(
@@ -373,6 +395,21 @@ class AppDatabase extends _$AppDatabase {
     if (rebuild) {
       await customStatement(
           "INSERT INTO check_in_revisions_fts(check_in_revisions_fts) VALUES ('rebuild')");
+    }
+  }
+
+  Future<void> _ensureLogSectionFts({required bool rebuild}) async {
+    await customStatement(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS log_sections_fts USING fts5(body, content='log_sections', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')");
+    await customStatement(
+        'CREATE TRIGGER IF NOT EXISTS log_sections_fts_insert AFTER INSERT ON log_sections BEGIN INSERT INTO log_sections_fts(rowid, body) VALUES (new.rowid, new.body); END');
+    await customStatement(
+        "CREATE TRIGGER IF NOT EXISTS log_sections_fts_delete AFTER DELETE ON log_sections BEGIN INSERT INTO log_sections_fts(log_sections_fts, rowid, body) VALUES ('delete', old.rowid, old.body); END");
+    await customStatement(
+        "CREATE TRIGGER IF NOT EXISTS log_sections_fts_update AFTER UPDATE OF body ON log_sections BEGIN INSERT INTO log_sections_fts(log_sections_fts, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO log_sections_fts(rowid, body) VALUES (new.rowid, new.body); END");
+    if (rebuild) {
+      await customStatement(
+          "INSERT INTO log_sections_fts(log_sections_fts) VALUES ('rebuild')");
     }
   }
 
@@ -399,6 +436,31 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 5) {
           await _ensureCheckInFts(rebuild: true);
+        }
+        if (from < 6) {
+          await migrator.addColumn(categories, categories.parentId);
+          await migrator.addColumn(categories, categories.path);
+          await migrator.addColumn(categories, categories.depth);
+          await customStatement(
+              'UPDATE check_ins SET category_id = (SELECT canonical.id FROM categories AS current JOIN categories AS canonical ON canonical.owner_id = current.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(current.name)) WHERE current.id = check_ins.category_id ORDER BY canonical.created_at, canonical.id LIMIT 1) WHERE category_id IS NOT NULL');
+          await customStatement(
+              'DELETE FROM categories WHERE EXISTS (SELECT 1 FROM categories AS canonical WHERE canonical.owner_id = categories.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(categories.name)) AND (canonical.created_at < categories.created_at OR (canonical.created_at = categories.created_at AND canonical.id < categories.id)))');
+          await customStatement(
+              'UPDATE categories SET path = LOWER(TRIM(name)) WHERE path IS NULL');
+          await customStatement(
+              'CREATE UNIQUE INDEX IF NOT EXISTS categories_owner_path_idx ON categories(owner_id, path)');
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS categories_owner_parent_idx ON categories(owner_id, parent_id, deleted_at)');
+          await migrator.createTable(logSections);
+          await customStatement(
+              "INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) SELECT check_in_revisions.id, check_ins.owner_id, check_ins.id, check_in_revisions.id, check_ins.category_id, 0, check_in_revisions.body, '{}', check_ins.submitted_at, check_ins.timezone_id, check_in_revisions.id, check_in_revisions.created_at FROM check_in_revisions JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id");
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS log_sections_check_in_revision_position_idx ON log_sections(check_in_id, revision_id, position)');
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS log_sections_owner_occurred_idx ON log_sections(owner_id, occurred_at)');
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS log_sections_category_occurred_idx ON log_sections(category_id, occurred_at)');
+          await _ensureLogSectionFts(rebuild: true);
         }
       },
       beforeOpen: (OpeningDetails details) async {
@@ -427,9 +489,20 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(
             'CREATE INDEX IF NOT EXISTS tombstones_owner_retention_idx ON tombstones (owner_id, retention_until)');
         await customStatement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS categories_owner_path_idx ON categories(owner_id, path)');
+        await customStatement(
+            'CREATE INDEX IF NOT EXISTS categories_owner_parent_idx ON categories(owner_id, parent_id, deleted_at)');
+        await customStatement(
+            'CREATE INDEX IF NOT EXISTS log_sections_check_in_revision_position_idx ON log_sections(check_in_id, revision_id, position)');
+        await customStatement(
+            'CREATE INDEX IF NOT EXISTS log_sections_owner_occurred_idx ON log_sections(owner_id, occurred_at)');
+        await customStatement(
+            'CREATE INDEX IF NOT EXISTS log_sections_category_occurred_idx ON log_sections(category_id, occurred_at)');
+        await customStatement(
           'CREATE TABLE IF NOT EXISTS reminder_drafts (occurrence_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL)',
         );
         await _ensureCheckInFts(rebuild: false);
+        await _ensureLogSectionFts(rebuild: false);
       });
 }
 
