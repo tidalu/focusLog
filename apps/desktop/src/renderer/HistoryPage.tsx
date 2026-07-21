@@ -7,6 +7,7 @@ import {
   delayLabel,
   durationLabel,
   localDay,
+  newestHistoryFirst,
   periodFor,
   systemTimezone,
   timeLabel,
@@ -28,6 +29,8 @@ const quickFilters = [
   { label: 'Desktop', query: 'device:desktop' },
   { label: 'Android', query: 'device:android' }
 ] as const;
+
+const periodsNewestFirst = ['Evening', 'Afternoon', 'Morning'] as const;
 
 function monthDays(month: Date): Array<{ day: string; label: number; inMonth: boolean }> {
   const year = month.getFullYear();
@@ -83,7 +86,7 @@ export function HistoryPage({ searchRef }: HistoryPageProps): React.JSX.Element 
 
   const grouped = useMemo(() => {
     const result = new Map<string, HistoryItem[]>();
-    for (const item of items) {
+    for (const item of newestHistoryFirst(items)) {
       const period = periodFor(item.submittedAt);
       result.set(period, [...(result.get(period) ?? []), item]);
     }
@@ -206,7 +209,7 @@ export function HistoryPage({ searchRef }: HistoryPageProps): React.JSX.Element 
               <span>No entries match this day and filter.</span>
             </div>
           ) : (
-            ['Morning', 'Afternoon', 'Evening'].map((period) => {
+            periodsNewestFirst.map((period) => {
               const periodItems = grouped.get(period);
               if (!periodItems?.length) return null;
               return (

@@ -81,6 +81,15 @@ export function periodFor(instant: string, timezoneId = systemTimezone): string 
   return 'Evening';
 }
 
+export function newestHistoryFirst<T extends { id: string; submittedAt: string }>(
+  items: readonly T[]
+): T[] {
+  return [...items].sort(
+    (left, right) =>
+      right.submittedAt.localeCompare(left.submittedAt) || right.id.localeCompare(left.id)
+  );
+}
+
 export function durationLabel(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
