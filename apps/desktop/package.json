@@ -1,6 +1,6 @@
 {
   "name": "@focuslog/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Private, local-first focus tracking for Windows.",
   "author": "FocusLog",
   "private": true,
