@@ -3,13 +3,28 @@ import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ulid } from 'ulid';
 
-import { searchCheckIns } from './check-in-search.js';
+import { parseHistorySearch, searchCheckIns } from './check-in-search.js';
 import { openDesktopDatabase, type DesktopDatabase } from './database.js';
 
 describe('SQLite FTS5 check-in search', () => {
   let database: DesktopDatabase | undefined;
 
   afterEach(() => database?.close());
+
+  it('parses Spotlight-style search operators without sending them to FTS', () => {
+    expect(
+      parseHistorySearch(
+        'leetcode category:study device:desktop delay>2m last week',
+        new Date('2026-07-21T12:00:00.000Z')
+      )
+    ).toMatchObject({
+      text: 'leetcode',
+      category: 'study',
+      device: 'windows',
+      minimumDelaySeconds: 120,
+      submittedFrom: '2026-07-14T12:00:00.000Z'
+    });
+  });
 
   it('ranks full-text matches and applies tag, category, and session filters', () => {
     database = openDesktopDatabase(':memory:');

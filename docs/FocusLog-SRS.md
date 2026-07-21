@@ -1340,7 +1340,12 @@ the reusable mode is subsequently edited.
 
 **[REM-003] Persistent scheduling and recovery.** Scheduling must survive process
 restart, device restart, sleep, hibernation, clock changes, and time-zone or DST
-changes without losing or duplicating an occurrence.
+changes without losing or duplicating an occurrence. The Windows scheduler runs
+in the Electron main process, keeps running when the main window closes, starts
+in the background at login, and is isolated from renderer failure. Android uses
+persisted SQLite schedules with AlarmManager, WorkManager, and boot recovery;
+removing the app from Recents must not cancel OS-managed reminders, subject to
+Android force-stop, permission, Doze, and manufacturer restrictions.
 
 Acceptance: **[ACC-032]** recovery evaluates persisted UTC instants and policy,
 presents still-actionable reminders, and marks expired windows missed exactly once.

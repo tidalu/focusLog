@@ -12,6 +12,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'data/database/app_database.dart';
+import 'data/journal_category.dart';
 import 'data/mobile_repository.dart';
 import 'identity/device_identity.dart';
 import 'identity/focuslog_api_client.dart';
@@ -416,33 +417,79 @@ class _DashboardState extends State<_Dashboard> {
 
   Future<void> _quickLog() async {
     final controller = TextEditingController();
+    final categories = (await widget.repository.searchFilterOptions())
+        .categories
+        .map((category) => category.name)
+        .toList();
+    if (!mounted) {
+      controller.dispose();
+      return;
+    }
     final value = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-            20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Quick check-in',
-              style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 16),
-          TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 3,
-            maxLines: 6,
-            decoration:
-                const InputDecoration(hintText: 'What are you working on?'),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Save check-in'),
-            ),
-          ),
-        ]),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setComposerState) {
+          final match = RegExp(r'^<([^>]*)$').firstMatch(controller.text);
+          final prefix = match?.group(1)?.trim().toLowerCase();
+          final suggestions = prefix == null
+              ? const <String>[]
+              : categories
+                  .where((category) =>
+                      category.toLowerCase().startsWith(prefix))
+                  .take(5)
+                  .toList();
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+                20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('Quick check-in',
+                  style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 6),
+              Text('Start with <category> to organize automatically.',
+                  style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 6,
+                onChanged: (_) => setComposerState(() {}),
+                decoration: const InputDecoration(
+                    hintText: '<study> What are you working on?'),
+              ),
+              if (suggestions.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final category in suggestions)
+                        ActionChip(
+                          label: Text('<$category>'),
+                          onPressed: () {
+                            controller.text = '<$category> ';
+                            controller.selection = TextSelection.collapsed(
+                                offset: controller.text.length);
+                            setComposerState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context, controller.text),
+                  child: const Text('Save check-in'),
+                ),
+              ),
+            ]),
+          );
+        },
       ),
     );
     controller.dispose();
@@ -678,6 +725,7 @@ class _ReminderScreenState extends State<_ReminderScreen>
   bool _submitting = false;
   bool _completed = false;
   int _interval = 15;
+  List<String> _categories = const [];
 
   int get _length => _controller.text.trim().runes.length;
 
@@ -693,6 +741,10 @@ class _ReminderScreenState extends State<_ReminderScreen>
     _controller.text =
         await widget.repository.reminderDraft(widget.occurrenceId);
     _interval = await widget.repository.reminderIntervalMinutes();
+    _categories = (await widget.repository.searchFilterOptions())
+        .categories
+        .map((category) => category.name)
+        .toList();
     if (mounted) {
       setState(() {});
       _focusNode.requestFocus();
@@ -752,7 +804,16 @@ class _ReminderScreenState extends State<_ReminderScreen>
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) {
+    final match = RegExp(r'^<([^>]*)$').firstMatch(_controller.text);
+    final prefix = match?.group(1)?.trim().toLowerCase();
+    final suggestions = prefix == null
+        ? const <String>[]
+        : _categories
+            .where((category) => category.toLowerCase().startsWith(prefix))
+            .take(5)
+            .toList();
+    return PopScope(
         canPop: _completed,
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop && !_completed) _focusNode.requestFocus();
@@ -789,13 +850,33 @@ class _ReminderScreenState extends State<_ReminderScreen>
                         textInputAction: TextInputAction.newline,
                         decoration: InputDecoration(
                           hintText:
-                              'Describe what you completed, decided, or learned.',
+                              '<study> Describe what you completed or learned.',
                           helperText: _length < 20
                               ? '${20 - _length} more characters required'
                               : 'Ready to submit',
                           suffixText: '$_length / 20',
                         ),
                       ),
+                      if (suggestions.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final category in suggestions)
+                              ActionChip(
+                                label: Text('<$category>'),
+                                onPressed: () {
+                                  _controller.text = '<$category> ';
+                                  _controller.selection =
+                                      TextSelection.collapsed(
+                                          offset: _controller.text.length);
+                                  _focusNode.requestFocus();
+                                },
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       FilledButton(
                         onPressed:
@@ -822,6 +903,7 @@ class _ReminderScreenState extends State<_ReminderScreen>
           ),
         ),
       );
+  }
 }
 
 class _History extends StatefulWidget {
@@ -833,9 +915,7 @@ class _History extends StatefulWidget {
 
 class _HistoryState extends State<_History> {
   String _query = '';
-  String? _tagId;
   String? _categoryId;
-  String? _sessionId;
   SearchFilterOptions _filters =
       const SearchFilterOptions(tags: [], categories: [], sessions: []);
 
@@ -849,54 +929,249 @@ class _HistoryState extends State<_History> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<List<CheckInSummary>>(
-      future: widget.repository.history(_query,
-          tagId: _tagId, categoryId: _categoryId, sessionId: _sessionId),
-      builder: (context, snapshot) =>
-          ListView(padding: const EdgeInsets.all(20), children: [
-            TextField(
-                decoration: const InputDecoration(
-                    labelText: 'Search check-ins',
-                    prefixIcon: Icon(Icons.search)),
-                onChanged: (value) => setState(() => _query = value)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _tagId,
-              decoration: const InputDecoration(labelText: 'Tag'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All tags')),
-                for (final item in _filters.tags)
-                  DropdownMenuItem(value: item.id, child: Text(item.name))
-              ],
-              onChanged: (value) => setState(() => _tagId = value),
+        future: widget.repository.history(_query, categoryId: _categoryId),
+        builder: (context, snapshot) {
+          final entries = snapshot.data ?? const <CheckInSummary>[];
+          final grouped = <String, List<CheckInSummary>>{};
+          for (final entry in entries) {
+            final local = entry.submittedAt.toLocal();
+            final key = '${_journalDayLabel(local)} · ${_journalPeriod(local)}';
+            grouped.putIfAbsent(key, () => []).add(entry);
+          }
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                sliver: SliverList.list(children: [
+                  Text('Journal',
+                      style: Theme.of(context)
+                          .textTheme
+                          .displaySmall
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Text('Your days, remembered in context.',
+                      style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 20),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Search study, today, category:work…',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                    onChanged: (value) => setState(() => _query = value),
+                  ),
+                  const SizedBox(height: 14),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [
+                      ChoiceChip(
+                        label: const Text('Everything'),
+                        selected: _categoryId == null,
+                        onSelected: (_) => setState(() => _categoryId = null),
+                      ),
+                      const SizedBox(width: 8),
+                      for (final category in _filters.categories) ...[
+                        ChoiceChip(
+                          avatar: CircleAvatar(
+                            radius: 5,
+                            backgroundColor:
+                                _journalCategoryColor(category.name),
+                          ),
+                          label: Text(category.name),
+                          selected: _categoryId == category.id,
+                          onSelected: (_) =>
+                              setState(() => _categoryId = category.id),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ]),
+                  ),
+                ]),
+              ),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const SliverFillRemaining(
+                    child: Center(child: CircularProgressIndicator()))
+              else if (entries.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.auto_stories_outlined, size: 42),
+                        const SizedBox(height: 12),
+                        Text('No journal entries found',
+                            style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 6),
+                        const Text('Try a different search or category.'),
+                      ]),
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+                  sliver: SliverList.list(children: [
+                    for (final group in grouped.entries) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
+                        child: Text(group.key.toUpperCase(),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                  letterSpacing: 1.2,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                )),
+                      ),
+                      for (final entry in group.value)
+                        _JournalEntryCard(entry: entry),
+                    ],
+                  ]),
+                ),
+            ],
+          );
+        },
+      );
+}
+
+String _journalPeriod(DateTime date) {
+  if (date.hour < 12) return 'Morning';
+  if (date.hour < 17) return 'Afternoon';
+  return 'Evening';
+}
+
+String _journalDayLabel(DateTime date) {
+  final now = DateTime.now();
+  final value = DateTime(date.year, date.month, date.day);
+  final today = DateTime(now.year, now.month, now.day);
+  if (value == today) return 'Today';
+  if (value == today.subtract(const Duration(days: 1))) return 'Yesterday';
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  return '${months[date.month - 1]} ${date.day}';
+}
+
+Color _journalCategoryColor(String category) {
+  const semanticHues = <String, double>{
+    'study': 220,
+    'reading': 220,
+    'work': 278,
+    'startup': 278,
+    'sleep': 245,
+    'gym': 140,
+    'exercise': 140,
+    'food': 32,
+    'lunch': 32,
+    'dinner': 32,
+    'youtube': 334,
+    'entertainment': 334,
+    'break': 174,
+  };
+  final normalized = category.toLowerCase();
+  final semanticHue = semanticHues[normalized];
+  if (semanticHue != null) {
+    return HSLColor.fromAHSL(1, semanticHue, .62, .50).toColor();
+  }
+  var hash = 2166136261;
+  for (final unit in normalized.codeUnits) {
+    hash = ((hash ^ unit) * 16777619) & 0xffffffff;
+  }
+  return HSLColor.fromAHSL(1, (hash % 360).toDouble(), .58, .52).toColor();
+}
+
+String _responseDelayLabel(int seconds) {
+  if (seconds < 60) return '$seconds sec response';
+  return '${(seconds / 60).round()} min response';
+}
+
+class _JournalEntryCard extends StatelessWidget {
+  const _JournalEntryCard({required this.entry});
+  final CheckInSummary entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final parsed = parseJournalEntry(entry.body);
+    final local = entry.submittedAt.toLocal();
+    final category = entry.category == 'Uncategorized'
+        ? parsed.category
+        : entry.category;
+    final color = _journalCategoryColor(category);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 54,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 17),
+            child: Text(
+              '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}',
+              style: Theme.of(context).textTheme.labelMedium,
             ),
-            DropdownButtonFormField<String>(
-              initialValue: _categoryId,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items: [
-                const DropdownMenuItem(
-                    value: null, child: Text('All categories')),
-                for (final item in _filters.categories)
-                  DropdownMenuItem(value: item.id, child: Text(item.name))
-              ],
-              onChanged: (value) => setState(() => _categoryId = value),
+          ),
+        ),
+        Column(children: [
+          const SizedBox(height: 19),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          Container(
+            width: 1,
+            height: 84,
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .14),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(category,
+                          style: TextStyle(
+                              color: color, fontWeight: FontWeight.w700)),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      entry.device.toLowerCase().contains('android')
+                          ? Icons.phone_android
+                          : Icons.desktop_windows_outlined,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ]),
+                  const SizedBox(height: 12),
+                  Text(parsed.text.isEmpty ? entry.body : parsed.text,
+                      style: Theme.of(context).textTheme.bodyLarge),
+                  if (entry.responseDelaySeconds != null) ...[
+                    const SizedBox(height: 10),
+                    Text(_responseDelayLabel(entry.responseDelaySeconds!),
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ],
+              ),
             ),
-            DropdownButtonFormField<String>(
-              initialValue: _sessionId,
-              decoration: const InputDecoration(labelText: 'Focus session'),
-              items: [
-                const DropdownMenuItem(
-                    value: null, child: Text('All sessions')),
-                for (final item in _filters.sessions)
-                  DropdownMenuItem(value: item.id, child: Text(item.name))
-              ],
-              onChanged: (value) => setState(() => _sessionId = value),
-            ),
-            const SizedBox(height: 16),
-            for (final item in snapshot.data ?? [])
-              ListTile(
-                  title: Text(item.body),
-                  subtitle: Text(item.submittedAt.toLocal().toString()))
-          ]));
+          ),
+        ),
+      ]),
+    );
+  }
 }
 
 String _reportDayString(DateTime date) =>
@@ -986,7 +1261,7 @@ class _ReportsState extends State<_Reports> {
       builder: (context, snapshot) {
         final report = snapshot.data;
         return ListView(padding: const EdgeInsets.all(20), children: [
-          Text('Daily report · $_day',
+          Text('Daily insight · $_day',
               style: Theme.of(context).textTheme.headlineMedium),
           Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(
@@ -1028,50 +1303,35 @@ class _ReportsState extends State<_Reports> {
             _Metric('Longest streak', '${report?.longestFocusStreak ?? 0}',
                 Icons.local_fire_department_outlined),
           ]),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.psychology_alt_outlined),
-              title: const Text('Most common activity'),
-              subtitle:
-                  Text(report?.mostCommonActivity ?? 'No activity recorded'),
-            ),
-          ),
-          Text(
-              'Report timezone: ${report?.timezoneId ?? _timezone.text}; local day length: ${report?.dayDurationMinutes ?? 1440} minutes'),
-          Text(
-              'Categories: ${report?.categories.entries.map((entry) => '${entry.key}: ${entry.value}').join(', ') ?? 'none'}'),
-          Text(
-              'Reminder states: ${report?.occurrenceStates.entries.map((entry) => '${entry.key.toLowerCase()}: ${entry.value}').join(', ') ?? 'none'}'),
-          const SizedBox(height: 16),
-          Text('Complete timeline',
-              style: Theme.of(context).textTheme.titleLarge),
-          if (report != null && report.timeline.isEmpty)
-            const Text('No events recorded.'),
-          for (final item in report?.timeline ?? <ReportTimelineItem>[])
-            ListTile(
-              dense: true,
-              title: Text(item.title),
-              subtitle: Text(
-                  '${_reportTime(item.occurredAt, report!.timezoneId)} · ${item.detail}'
-                  '${item.originalTimezoneId == null ? '' : '\nRecorded in ${item.originalTimezoneId}'}'),
-            ),
-          if (report != null && report.wordCloud.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text('Activity words',
-                style: Theme.of(context).textTheme.titleLarge),
+          if (report != null) ...[
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final word in report.wordCloud.entries)
-                  Chip(label: Text('${word.key}  ${word.value}')),
-              ],
+            _CategoryDistribution(categories: report.categories),
+            const SizedBox(height: 12),
+            _HourlyActivity(report: report),
+            const SizedBox(height: 12),
+            _WordCloud(words: report.wordCloud),
+            const SizedBox(height: 12),
+            _DailyInsights(report: report),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Long-term rhythm',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 14),
+                    Row(children: [
+                      Expanded(child: _TrendValue('7 days', report.weekly)),
+                      Expanded(child: _TrendValue('30 days', report.monthly)),
+                      Expanded(child: _TrendValue('365 days', report.yearly)),
+                    ]),
+                  ],
+                ),
+              ),
             ),
           ],
-          const SizedBox(height: 16),
-          Text(
-              'Trends: week ${report?.weekly ?? 0}, month ${report?.monthly ?? 0}, year ${report?.yearly ?? 0} check-ins')
         ]);
       });
 }
@@ -1101,6 +1361,204 @@ class _Metric extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _CategoryDistribution extends StatelessWidget {
+  const _CategoryDistribution({required this.categories});
+  final Map<String, int> categories;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = categories.values.fold<int>(0, (sum, value) => sum + value);
+    final ranked = categories.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Categories', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 16),
+          if (ranked.isEmpty) const Text('No activity yet.'),
+          for (final category in ranked) ...[
+            Row(children: [
+              Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                      color: _journalCategoryColor(category.key),
+                      shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(category.key)),
+              Text('${total == 0 ? 0 : (category.value * 100 / total).round()}%'),
+            ]),
+            const SizedBox(height: 7),
+            LinearProgressIndicator(
+              value: total == 0 ? 0 : category.value / total,
+              minHeight: 7,
+              borderRadius: BorderRadius.circular(99),
+              color: _journalCategoryColor(category.key),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+class _HourlyActivity extends StatelessWidget {
+  const _HourlyActivity({required this.report});
+  final DailyReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = List<int>.filled(24, 0);
+    for (final entry in report.timeline.where((item) => item.kind == 'CHECK_IN')) {
+      final local = tz.TZDateTime.from(
+          entry.occurredAt.toUtc(), tz.getLocation(report.timezoneId));
+      values[local.hour] += 1;
+    }
+    final maximum =
+        values.fold<int>(1, (value, item) => item > value ? item : value);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Hourly activity',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 120,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var hour = 0; hour < 24; hour++)
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${hour.toString().padLeft(2, '0')}:00 · ${values[hour]} entries',
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                        child: Container(
+                          height: 8 + 92 * values[hour] / maximum,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(
+                                    alpha: values[hour] == 0 ? .09 : .75),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [Text('00'), Text('06'), Text('12'), Text('18'), Text('23')]),
+        ]),
+      ),
+    );
+  }
+}
+
+class _WordCloud extends StatelessWidget {
+  const _WordCloud({required this.words});
+  final Map<String, int> words;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Words in focus',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 14),
+            if (words.isEmpty)
+              const Text('Your recurring themes will appear here.'),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                for (final word in words.entries)
+                  Text(word.key,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontSize:
+                                (13 + word.value.clamp(1, 6) * 2).toDouble(),
+                            fontWeight: FontWeight.w600,
+                          )),
+              ],
+            ),
+          ]),
+        ),
+      );
+}
+
+class _DailyInsights extends StatelessWidget {
+  const _DailyInsights({required this.report});
+  final DailyReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final ranked = report.categories.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    final topCategory = ranked.isEmpty ? 'No category yet' : ranked.first.key;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Daily insights', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          _InsightRow(Icons.bolt_outlined, 'Primary focus', topCategory),
+          _InsightRow(Icons.timer_outlined, 'Longest response streak',
+              '${report.longestFocusStreak} intervals'),
+          _InsightRow(Icons.psychology_alt_outlined, 'Most repeated thought',
+              report.mostCommonActivity ?? 'Not enough activity'),
+        ]),
+      ),
+    );
+  }
+}
+
+class _InsightRow extends StatelessWidget {
+  const _InsightRow(this.icon, this.label, this.value);
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(children: [
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label)),
+          Flexible(
+              child: Text(value,
+                  textAlign: TextAlign.end,
+                  style: const TextStyle(fontWeight: FontWeight.w700))),
+        ]),
+      );
+}
+
+class _TrendValue extends StatelessWidget {
+  const _TrendValue(this.label, this.value);
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        Text('$value',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ]);
 }
 
 class _Heatmap extends StatefulWidget {
@@ -1165,9 +1623,18 @@ class _HeatmapState extends State<_Heatmap> {
         final heatmap = snapshot.data;
         final days = heatmap?.days ?? <HeatmapDay>[];
         final leadingDays = DateTime.utc(_year, 1, 1).weekday % 7;
+        final activeDays = days.where((day) => day.value > 0).length;
+        final totalEntries =
+            days.fold<int>(0, (total, day) => total + day.value);
         return ListView(padding: const EdgeInsets.all(20), children: [
-          Text('$_year activity calendar',
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text('Your year in focus',
+              style: Theme.of(context)
+                  .textTheme
+                  .displaySmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('Every square is a day in your journal.',
+              style: Theme.of(context).textTheme.bodyLarge),
           Wrap(spacing: 8, runSpacing: 8, children: [
             IconButton(
                 tooltip: 'Previous year',
@@ -1203,7 +1670,21 @@ class _HeatmapState extends State<_Heatmap> {
           if (_error != null)
             Text(_error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          Text(heatmap?.metricDescription ?? ''),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(children: [
+                Expanded(child: _TrendValue('Entries', totalEntries)),
+                Expanded(child: _TrendValue('Active days', activeDays)),
+                Expanded(
+                    child: _TrendValue(
+                        'Consistency',
+                        days.isEmpty
+                            ? 0
+                            : (activeDays * 100 / days.length).round())),
+              ]),
+            ),
+          ),
           const SizedBox(height: 12),
           Semantics(
             label:
@@ -1240,7 +1721,7 @@ class _HeatmapState extends State<_Heatmap> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineSmall),
-                              Text('Report timezone: ${heatmap.timezoneId}'),
+                              Text('A complete view of this day · ${heatmap.timezoneId}'),
                               const SizedBox(height: 12),
                               Wrap(spacing: 8, runSpacing: 8, children: [
                                 Chip(
@@ -1263,10 +1744,17 @@ class _HeatmapState extends State<_Heatmap> {
                               if (report.timeline.isEmpty)
                                 const Text('No activity recorded.'),
                               for (final entry in report.timeline)
-                                ListTile(
-                                  title: Text(entry.title),
-                                  subtitle: Text(
-                                      '${_reportTime(entry.occurredAt, heatmap.timezoneId)} · ${entry.detail}'),
+                                Card(
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      child: Text(_reportTime(entry.occurredAt,
+                                              heatmap.timezoneId)
+                                          .substring(0, 2)),
+                                    ),
+                                    title: Text(entry.title),
+                                    subtitle: Text(
+                                        '${_reportTime(entry.occurredAt, heatmap.timezoneId).substring(0, 5)} · ${parseJournalEntry(entry.detail).text}'),
+                                  ),
                                 ),
                             ],
                           ),
@@ -1278,21 +1766,35 @@ class _HeatmapState extends State<_Heatmap> {
               ),
             ),
           ),
-          Text(
-            days
-                    .where((day) => day.value > 0)
-                    .map((day) => '${day.day}: ${day.value}')
-                    .join('; ')
-                    .isEmpty
-                ? 'No activity in $_year.'
-                : days
-                    .where((day) => day.value > 0)
-                    .map((day) => '${day.day}: ${day.value}')
-                    .join('; '),
-            semanticsLabel: 'Text alternative for the activity heatmap',
-          ),
+          const SizedBox(height: 10),
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Text('Less', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(width: 6),
+            for (var level = 0; level <= 4; level++) ...[
+              Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: _heatmapColor(context, level),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            Text('More', style: Theme.of(context).textTheme.bodySmall),
+          ]),
         ]);
       });
+}
+
+Color _heatmapColor(BuildContext context, int intensity) {
+  if (intensity == 0) {
+    return Theme.of(context).colorScheme.surfaceContainerHighest;
+  }
+  return Color.lerp(
+      Theme.of(context).colorScheme.primaryContainer,
+      Theme.of(context).colorScheme.primary,
+      intensity / 4)!;
 }
 
 class _DayCell extends StatelessWidget {
@@ -1316,10 +1818,12 @@ class _DayCell extends StatelessWidget {
           message: '$day: $count check-ins',
           child: InkWell(
               onTap: () => onSelected(),
-              child: Card(
-                  color: intensity == 0
-                      ? null
-                      : Colors.green.withValues(alpha: 0.2 + intensity * 0.18),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                  decoration: BoxDecoration(
+                    color: _heatmapColor(context, intensity),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                   child: const SizedBox.square(dimension: 28)))));
 }
 

@@ -10,6 +10,8 @@ export const maximumReminderInterval = 240;
 
 type SettingsValues = Record<string, unknown>;
 
+export type CloseBehavior = 'tray' | 'exit';
+
 function validateInterval(intervalMinutes: number): number {
   if (
     !Number.isInteger(intervalMinutes) ||
@@ -55,6 +57,28 @@ export function writeOwnerSettings(
            updated_at = excluded.updated_at`
     )
     .run(ownerId, JSON.stringify(values), ulid(), timestamp, timestamp);
+}
+
+export function closeBehavior(database: DesktopDatabase, ownerId: string): CloseBehavior {
+  return readOwnerSettings(database, ownerId).closeBehavior === 'exit' ? 'exit' : 'tray';
+}
+
+export function setCloseBehavior(
+  database: DesktopDatabase,
+  ownerId: string,
+  behavior: CloseBehavior,
+  now = new Date()
+): CloseBehavior {
+  if (behavior !== 'tray' && behavior !== 'exit') {
+    throw new Error('Close behavior must be tray or exit.');
+  }
+  writeOwnerSettings(
+    database,
+    ownerId,
+    { ...readOwnerSettings(database, ownerId), closeBehavior: behavior },
+    now
+  );
+  return behavior;
 }
 
 export function reminderIntervalMinutes(database: DesktopDatabase, ownerId: string): number {

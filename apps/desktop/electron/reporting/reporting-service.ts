@@ -2,6 +2,7 @@ import {
   addReportDays,
   heatmapDays,
   localDayForInstant,
+  parseJournalEntry,
   reportDayBounds,
   type HeatmapDay
 } from '@focuslog/shared-utils';
@@ -17,6 +18,9 @@ export type TimelineEntry = {
   title: string;
   detail: string;
   originalTimezoneId?: string;
+  category?: string;
+  device?: string;
+  responseDelaySeconds?: number;
 };
 
 export type DailyReport = {
@@ -29,7 +33,14 @@ export type DailyReport = {
   focusScore: number;
   completionPercentage: number;
   averageResponseDelayMinutes: number;
+  averageResponseDelaySeconds: number;
   longestFocusStreak: number;
+  longestFocusStreakMinutes: number;
+  entryCount: number;
+  mostActiveHour: number | null;
+  hourlyActivity: Array<{ hour: number; count: number }>;
+  mostProductivePeriod: string | null;
+  biggestDistraction: string | null;
   mostCommonActivity: string | null;
   wordCloud: Array<{ word: string; count: number }>;
   categories: Array<{ name: string; count: number }>;
@@ -53,6 +64,7 @@ type OccurrenceRow = {
   scheduledAt: string;
   resolvedAt: string | null;
   timezoneId: string;
+  policySnapshotJson: string;
 };
 
 const effectiveOccurrenceTime = (row: OccurrenceRow): string => row.resolvedAt ?? row.scheduledAt;
@@ -96,7 +108,7 @@ export class ReportingService {
     const occurrences = this.database
       .prepare(
         `SELECT id, state, scheduled_at AS scheduledAt, resolved_at AS resolvedAt,
-                timezone_id AS timezoneId
+                timezone_id AS timezoneId, policy_snapshot_json AS policySnapshotJson
            FROM reminder_occurrences
           WHERE owner_id = ?
             AND COALESCE(resolved_at, scheduled_at) >= ?
@@ -127,12 +139,25 @@ export class ReportingService {
           );
     let runningStreak = 0;
     let longestFocusStreak = 0;
+    let runningStreakMinutes = 0;
+    let longestFocusStreakMinutes = 0;
     for (const occurrence of occurrences) {
       if (occurrence.state === 'COMPLETED') {
         runningStreak += 1;
+        let intervalMinutes = 15;
+        try {
+          const policy = JSON.parse(occurrence.policySnapshotJson) as { intervalMinutes?: number };
+          if (Number.isFinite(policy.intervalMinutes))
+            intervalMinutes = policy.intervalMinutes ?? 15;
+        } catch {
+          // Historical malformed policy snapshots use the production default.
+        }
+        runningStreakMinutes += intervalMinutes;
         longestFocusStreak = Math.max(longestFocusStreak, runningStreak);
+        longestFocusStreakMinutes = Math.max(longestFocusStreakMinutes, runningStreakMinutes);
       } else if (['MISSED', 'SKIPPED', 'EMERGENCY_DISMISSED'].includes(occurrence.state)) {
         runningStreak = 0;
+        runningStreakMinutes = 0;
       }
     }
 
@@ -170,10 +195,16 @@ export class ReportingService {
         `SELECT check_ins.id, check_in_revisions.body,
                 check_ins.submitted_at AS submittedAt,
                 check_ins.timezone_id AS timezoneId,
-                COALESCE(categories.name, 'Uncategorized') AS category
+                COALESCE(categories.name, 'Uncategorized') AS category,
+                COALESCE(devices.platform, 'unknown') AS device,
+                CASE WHEN reminder_occurrences.scheduled_at IS NULL THEN NULL ELSE
+                  MAX(0, CAST(ROUND((julianday(check_ins.submitted_at) - julianday(reminder_occurrences.scheduled_at)) * 86400) AS INTEGER))
+                END AS responseDelaySeconds
            FROM check_ins
            JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id
            LEFT JOIN categories ON categories.id = check_ins.category_id
+           LEFT JOIN devices ON devices.id = check_in_revisions.author_device_id
+           LEFT JOIN reminder_occurrences ON reminder_occurrences.id = check_ins.reminder_occurrence_id
           WHERE check_ins.owner_id = ? AND check_ins.deleted_at IS NULL
             AND check_ins.submitted_at >= ? AND check_ins.submitted_at < ?
           ORDER BY check_ins.submitted_at, check_ins.id`
@@ -184,14 +215,26 @@ export class ReportingService {
       submittedAt: string;
       timezoneId: string;
       category: string;
+      device: string;
+      responseDelaySeconds: number | null;
     }>;
     const categoryCounts = new Map<string, number>();
     const activityCounts = new Map<string, number>();
     const words = new Map<string, number>();
+    const hourlyCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
     for (const item of checkIns) {
       categoryCounts.set(item.category, (categoryCounts.get(item.category) ?? 0) + 1);
-      activityCounts.set(item.body, (activityCounts.get(item.body) ?? 0) + 1);
-      for (const match of item.body.toLocaleLowerCase().match(wordPattern) ?? []) {
+      const parsed = parseJournalEntry(item.body);
+      activityCounts.set(parsed.text, (activityCounts.get(parsed.text) ?? 0) + 1);
+      const hour = Number(
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: selection.timezoneId,
+          hour: '2-digit',
+          hourCycle: 'h23'
+        }).format(new Date(item.submittedAt))
+      );
+      if (hourlyCounts[hour]) hourlyCounts[hour].count += 1;
+      for (const match of parsed.text.toLocaleLowerCase().match(wordPattern) ?? []) {
         if (match.length < 3 || ignoredWords.has(match)) continue;
         words.set(match, (words.get(match) ?? 0) + 1);
       }
@@ -204,14 +247,39 @@ export class ReportingService {
     const wordCloud = Array.from(words, ([word, count]) => ({ word, count }))
       .sort((left, right) => right.count - left.count || left.word.localeCompare(right.word))
       .slice(0, 16);
+    const mostActiveHour = hourlyCounts.reduce<{ hour: number; count: number } | null>(
+      (best, value) => (value.count > (best?.count ?? 0) ? value : best),
+      null
+    );
+    let productiveStart: number | null = null;
+    let productiveTotal = 0;
+    for (let startHour = 0; startHour <= 20; startHour += 1) {
+      const total = hourlyCounts
+        .slice(startHour, startHour + 4)
+        .reduce((sum, value) => sum + value.count, 0);
+      if (total > productiveTotal) {
+        productiveStart = startHour;
+        productiveTotal = total;
+      }
+    }
+    const distractionNames = new Set(['youtube', 'entertainment', 'social', 'gaming']);
+    const biggestDistraction =
+      Array.from(categoryCounts)
+        .filter(([name]) => distractionNames.has(name.toLocaleLowerCase()))
+        .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
 
     const timeline: TimelineEntry[] = checkIns.map((item) => ({
       id: item.id,
       kind: 'CHECK_IN',
       occurredAt: item.submittedAt,
-      title: `Check-in · ${item.category}`,
-      detail: item.body,
-      originalTimezoneId: item.timezoneId
+      title: item.category,
+      detail: parseJournalEntry(item.body).text,
+      originalTimezoneId: item.timezoneId,
+      category: item.category,
+      device: item.device,
+      ...(item.responseDelaySeconds == null
+        ? {}
+        : { responseDelaySeconds: item.responseDelaySeconds })
     }));
     timeline.push(
       ...occurrences.map((item) => ({
@@ -338,7 +406,26 @@ export class ReportingService {
       focusScore: completionPercentage,
       completionPercentage,
       averageResponseDelayMinutes,
+      averageResponseDelaySeconds:
+        completionDelays.length === 0
+          ? 0
+          : Math.round(
+              completionDelays.reduce((total, delay) => total + delay, 0) /
+                completionDelays.length /
+                1000
+            ),
       longestFocusStreak,
+      longestFocusStreakMinutes,
+      entryCount: checkIns.length,
+      mostActiveHour: mostActiveHour?.count ? mostActiveHour.hour : null,
+      hourlyActivity: hourlyCounts,
+      mostProductivePeriod:
+        productiveStart == null
+          ? null
+          : `${productiveStart.toString().padStart(2, '0')}:00–${(productiveStart + 4)
+              .toString()
+              .padStart(2, '0')}:00`,
+      biggestDistraction,
       mostCommonActivity,
       wordCloud,
       categories: Array.from(categoryCounts, ([name, count]) => ({ name, count })).sort(

@@ -1,5 +1,6 @@
 import { ulid } from 'ulid';
 
+import { inferredCategoryId } from '../database/category-inference.js';
 import type { DesktopDatabase } from '../database/database.js';
 import { queueSyncOperation } from '../database/local-sync.js';
 import { transitionReminder, type ReminderState } from './state.js';
@@ -179,6 +180,7 @@ export function completeReminderOffline(
   const checkInId = ulid();
   const revisionId = ulid();
   database.transaction(() => {
+    const categoryId = inferredCategoryId(database, input.ownerId, body, occurredAt);
     database
       .prepare(
         "UPDATE reminder_occurrences SET state = 'COMPLETED', resolved_at = ?, version = ?, updated_at = ? WHERE id = ?"
@@ -205,15 +207,16 @@ export function completeReminderOffline(
     database
       .prepare(
         `INSERT INTO check_ins
-         (id, owner_id, reminder_occurrence_id, focus_session_id, current_revision_id,
+         (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id,
           submitted_at, timezone_id, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         checkInId,
         input.ownerId,
         input.occurrenceId,
         occurrence.focus_session_id,
+        categoryId,
         revisionId,
         occurredAt,
         occurrence.timezone_id,

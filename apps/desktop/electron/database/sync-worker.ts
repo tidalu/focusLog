@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 
 import type { DesktopDatabase } from './database.js';
+import { updateInferredCategory } from './category-inference.js';
 import { readOwnerSettings, writeOwnerSettings } from '../reminders/preferences.js';
 
 interface PushResult {
@@ -462,6 +463,13 @@ function applyReminderCompletion(
       change.operationId,
       payload.completedAt
     );
+  updateInferredCategory(
+    database,
+    ownerId,
+    String(payload.checkInId),
+    String(payload.body),
+    String(payload.completedAt)
+  );
 }
 
 function applyCheckInCreate(
@@ -512,6 +520,13 @@ function applyCheckInCreate(
       change.operationId,
       payload.submittedAt
     );
+  updateInferredCategory(
+    database,
+    ownerId,
+    entityId,
+    String(payload.body),
+    String(payload.submittedAt)
+  );
 }
 
 function applyCheckInRevision(
@@ -553,6 +568,13 @@ function applyCheckInRevision(
       'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
     )
     .run(payload.revisionId, payload.revisionId, now.toISOString(), entityId);
+  updateInferredCategory(
+    database,
+    ownerId,
+    entityId,
+    String(payload.body),
+    String(payload.createdAt)
+  );
 }
 
 function applyCheckInDeletion(

@@ -67,11 +67,11 @@ Every display uses the stable occurrence ID. Completion, snooze, skip, and dismi
 
 ## Platform adapters
 
-| Platform               | Responsibilities                                                                                          | Limitation handling                                                                                           |
-| ---------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Windows/Electron       | Main-process scheduler, tray, autostart, sleep/resume detection, overlay window, notification integration | Never expose privileged APIs to renderer; recover missed occurrences after restart/wake                       |
-| Android/Flutter        | App workflow and local state                                                                              | UI never assumes background execution is perpetual                                                            |
-| Android/Kotlin adapter | Alarm scheduling, notification channels, permitted foreground service/full-screen presentation            | Use only Android-approved mechanisms; disclose battery/notification limitations and recover on next execution |
+| Platform               | Responsibilities                                                                                         | Limitation handling                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Windows/Electron       | Main-process scheduler, persistent tray process, login autostart, sleep/resume detection, overlay window | Closing or crashing the renderer does not stop the scheduler; restart/wake recovery reads SQLite              |
+| Android/Flutter        | SQLite schedule source, WorkManager reconciliation, AlarmManager notifications, foreground presentation  | Recovers after recents removal and reboot when Android permits; UI never assumes background work is perpetual |
+| Android/Kotlin adapter | Alarm scheduling, notification channels, permitted foreground service/full-screen presentation           | Use only Android-approved mechanisms; disclose battery/notification limitations and recover on next execution |
 
 ## Accessibility and operating-system control
 
@@ -93,6 +93,7 @@ interruption preserves the draft and never imitates a successful check-in.
 4. The default response window is 60 minutes. An occurrence that was never presented becomes `missed` when recovery finds it beyond that window. A presented occurrence remains available for an explicitly late completion unless its policy disables late completion.
 5. Recovery presents only the oldest actionable occurrence. Other overdue occurrences remain durable and do not create an overlay or notification storm.
 6. Concurrent device resolution is server-canonical and idempotent. The first valid completion creates the one canonical check-in; later competing text is retained as conflict data rather than overwritten.
-7. Android support starts at API 23 and targets API 35. AlarmManager-backed notifications use inexact allow-while-idle scheduling; WorkManager, boot receivers, and foreground/app-resume reconciliation cover permitted recovery. FocusLog does not bypass force-stop, battery optimization, notification permission, or OEM controls.
+7. On Windows, closing the main window minimizes it to the tray by default. The owner may explicitly change this to exit the application. The scheduler remains in the Electron main process, starts at Windows login with `--background`, and reconstructs state from encrypted SQLite after restart, reboot, renderer failure, sleep, and hibernation.
+8. Android support starts at API 23 and targets API 35. AlarmManager-backed notifications use exact allow-while-idle scheduling when the owner grants exact-alarm access and an inexact allow-while-idle fallback otherwise. WorkManager, boot receivers, and foreground/app-resume reconciliation recover persisted schedules whenever Android permits execution. Swiping the app from Recents does not terminate these OS-managed schedules. FocusLog does not bypass force-stop, Doze, battery optimization, notification permission, or OEM controls; after a force-stop it recovers on the first later execution Android allows, normally the next explicit launch.
 
 These values must be approved before scheduler implementation because they determine durable historical meaning.

@@ -178,6 +178,7 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
       await prisma.syncCursor.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.devicePairing.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.device.deleteMany({ where: { ownerId: owner.ownerId } });
+      await prisma.category.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.setting.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.ownerSyncState.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.owner.deleteMany({ where: { id: owner.ownerId } });
@@ -190,7 +191,7 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
     const offline = createOfflineCheckIn(desktopDatabase, {
       ownerId: owner.ownerId,
       deviceId: owner.deviceId,
-      body: 'Desktop check-in created while the backend is unavailable',
+      body: '<work> Desktop check-in created while the backend is unavailable',
       timezoneId: 'UTC'
     });
 
@@ -269,12 +270,13 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
     expect(
       await prisma.checkIn.findUnique({
         where: { id: offline.checkInId },
-        include: { revisions: true }
+        include: { revisions: true, category: true }
       }),
       retryFailure?.message
     ).toMatchObject({
       id: offline.checkInId,
-      revisions: [{ body: 'Desktop check-in created while the backend is unavailable' }]
+      category: { name: 'work' },
+      revisions: [{ body: '<work> Desktop check-in created while the backend is unavailable' }]
     });
     const duplicate = await ownerTransport.push(
       desktopDatabase
@@ -288,8 +290,12 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
 
     await drainOutbox(androidDatabase, androidTransport);
     expect(
-      androidDatabase.prepare('SELECT id FROM check_ins WHERE id = ?').get(offline.checkInId)
-    ).toBeTruthy();
+      androidDatabase
+        .prepare(
+          'SELECT check_ins.id, categories.name FROM check_ins LEFT JOIN categories ON categories.id = check_ins.category_id WHERE check_ins.id = ?'
+        )
+        .get(offline.checkInId)
+    ).toMatchObject({ id: offline.checkInId, name: 'work' });
 
     const androidCheckIn = createOfflineCheckIn(androidDatabase, {
       ownerId: owner.ownerId,

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { CalendarPage } from './CalendarPage';
+import { HistoryPage } from './HistoryPage';
+import { ReportsPage } from './ReportsPage';
+
 type Page = 'Dashboard' | 'History' | 'Reports' | 'Calendar' | 'Settings' | 'Pair device';
 type IconName =
   | 'calendar'
@@ -16,23 +20,9 @@ type IconName =
   | 'settings'
   | 'stop'
   | 'sun';
-type HistoryItem = { id: string; body: string; submittedAt: string };
-type SearchFilters = Awaited<ReturnType<Window['focuslog']['searchFilters']>>;
 type DesktopStatus = Awaited<ReturnType<Window['focuslog']['getStatus']>>;
 type DashboardSummary = Awaited<ReturnType<Window['focuslog']['getDashboardSummary']>>;
 type ReminderPreferences = Awaited<ReturnType<Window['focuslog']['getReminderPreferences']>>;
-type TimelineItem = {
-  id: string;
-  kind: string;
-  occurredAt: string;
-  title: string;
-  detail: string;
-  originalTimezoneId?: string;
-};
-type Report = Awaited<ReturnType<Window['focuslog']['report']>>;
-type YearHeatmap = Awaited<ReturnType<Window['focuslog']['heatmap']>>;
-
-const systemTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const navigation: Array<{ page: Page; label: string; icon: IconName; shortcut: number }> = [
   { page: 'Dashboard', label: 'Today', icon: 'dashboard', shortcut: 1 },
   { page: 'History', label: 'History', icon: 'history', shortcut: 2 },
@@ -41,18 +31,6 @@ const navigation: Array<{ page: Page; label: string; icon: IconName; shortcut: n
   { page: 'Settings', label: 'Settings', icon: 'settings', shortcut: 5 },
   { page: 'Pair device', label: 'Pair device', icon: 'devices', shortcut: 6 }
 ];
-
-const todayInTimezone = (timezoneId: string): string => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezoneId,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts();
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? '';
-  return `${get('year')}-${get('month')}-${get('day')}`;
-};
 
 function Icon({ name, size = 19 }: { name: IconName; size?: number }): React.JSX.Element {
   const common = {
@@ -163,10 +141,6 @@ function PageTitle({
   );
 }
 
-function EmptyState({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div className="empty-state">{children}</div>;
-}
-
 export function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('Dashboard');
   const [status, setStatus] = useState<DesktopStatus | null>(null);
@@ -179,32 +153,14 @@ export function App(): React.JSX.Element {
     return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
   const [startup, setStartup] = useState(false);
+  const [closeBehavior, setCloseBehavior] = useState<'tray' | 'exit'>('tray');
   const [recoveryKey, setRecoveryKey] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
   const [manualOpen, setManualOpen] = useState(false);
   const [manualText, setManualText] = useState('');
+  const [knownCategories, setKnownCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [notice, setNotice] = useState('');
-  const [search, setSearch] = useState('');
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [searchFilters, setSearchFilters] = useState<SearchFilters>({
-    tags: [],
-    categories: [],
-    sessions: []
-  });
-  const [tagId, setTagId] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [sessionId, setSessionId] = useState('');
-  const [report, setReport] = useState<Report | null>(null);
-  const [heatmapData, setHeatmapData] = useState<YearHeatmap | null>(null);
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
-  const [reportTimezone, setReportTimezone] = useState(systemTimezone);
-  const [reportDay, setReportDay] = useState(() => todayInTimezone(systemTimezone));
-  const [reportYear, setReportYear] = useState(() =>
-    Number(todayInTimezone(systemTimezone).slice(0, 4))
-  );
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [selectedDayLog, setSelectedDayLog] = useState<TimelineItem[]>([]);
-  const [reportError, setReportError] = useState('');
   const [customInterval, setCustomInterval] = useState('15');
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -218,6 +174,7 @@ export function App(): React.JSX.Element {
     setSummary(nextSummary);
     setPreferences(nextPreferences);
     setStartup(nextStatus.startupEnabled);
+    setCloseBehavior(nextStatus.closeBehavior);
     setCustomInterval(String(nextPreferences.intervalMinutes));
   }, []);
 
@@ -235,6 +192,11 @@ export function App(): React.JSX.Element {
       clearInterval(clockTimer);
     };
   }, [refreshCore]);
+
+  useEffect(() => {
+    if (!manualOpen) return;
+    void window.focuslog.searchFilters().then((filters) => setKnownCategories(filters.categories));
+  }, [manualOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -256,38 +218,6 @@ export function App(): React.JSX.Element {
     return () => removeEventListener('keydown', onKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (page === 'History') {
-      void window.focuslog
-        .history({
-          query: search,
-          ...(tagId ? { tagId } : {}),
-          ...(categoryId ? { categoryId } : {}),
-          ...(sessionId ? { sessionId } : {})
-        })
-        .then(setHistory);
-      void window.focuslog.searchFilters().then(setSearchFilters);
-    }
-    if (page === 'Reports') {
-      void window.focuslog
-        .report({ day: reportDay, timezoneId: reportTimezone })
-        .then((result) => {
-          setReport(result);
-          setReportError('');
-        })
-        .catch((error) => setReportError(error instanceof Error ? error.message : String(error)));
-    }
-    if (page === 'Calendar') {
-      void window.focuslog
-        .heatmap({ year: reportYear, timezoneId: reportTimezone })
-        .then((result) => {
-          setHeatmapData(result);
-          setReportError('');
-        })
-        .catch((error) => setReportError(error instanceof Error ? error.message : String(error)));
-    }
-  }, [page, search, tagId, categoryId, sessionId, reportDay, reportTimezone, reportYear]);
-
   const runAction = async (action: () => Promise<unknown>, message: string) => {
     try {
       await action();
@@ -297,13 +227,6 @@ export function App(): React.JSX.Element {
       setNotice(error instanceof Error ? error.message : String(error));
     }
   };
-
-  const reportTime = (instant: string) =>
-    new Intl.DateTimeFormat(undefined, {
-      timeZone: reportTimezone,
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(instant));
 
   const nextReminderText = summary?.nextReminder
     ? formatDuration(new Date(summary.nextReminder.dueAt).getTime() - now)
@@ -320,6 +243,14 @@ export function App(): React.JSX.Element {
     () => navigation.find((item) => item.page === page)?.label ?? page,
     [page]
   );
+  const categorySuggestions = useMemo(() => {
+    const match = /^<([^>]*)$/u.exec(manualText.trimStart());
+    if (!match) return [];
+    const prefix = (match[1] ?? '').toLocaleLowerCase();
+    return knownCategories
+      .filter((category) => category.name.toLocaleLowerCase().startsWith(prefix))
+      .slice(0, 6);
+  }, [knownCategories, manualText]);
 
   return (
     <div className="app-shell">
@@ -530,342 +461,11 @@ export function App(): React.JSX.Element {
           </div>
         )}
 
-        {page === 'History' && (
-          <div className="page">
-            <PageTitle
-              eyebrow="Your record"
-              title="History"
-              description="Search every local check-in. Results are ranked and available offline."
-            />
-            <section className="panel">
-              <div className="search-field">
-                <Icon name="search" />
-                <input
-                  ref={searchRef}
-                  aria-label="Search history"
-                  placeholder="Search check-ins…"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-                <kbd>Ctrl K</kbd>
-              </div>
-              <div className="filter-row" aria-label="History filters">
-                <label>
-                  <span>Tag</span>
-                  <select value={tagId} onChange={(event) => setTagId(event.target.value)}>
-                    <option value="">All tags</option>
-                    {searchFilters.tags.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Category</span>
-                  <select
-                    value={categoryId}
-                    onChange={(event) => setCategoryId(event.target.value)}
-                  >
-                    <option value="">All categories</option>
-                    {searchFilters.categories.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Session</span>
-                  <select value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-                    <option value="">All sessions</option>
-                    {searchFilters.sessions.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </section>
-            <section className="timeline panel">
-              {history.length === 0 ? (
-                <EmptyState>No matching entries yet.</EmptyState>
-              ) : (
-                history.map((entry) => (
-                  <article className="timeline-entry" key={entry.id}>
-                    <span className="timeline-dot" />
-                    <time dateTime={entry.submittedAt}>
-                      {new Date(entry.submittedAt).toLocaleString([], {
-                        dateStyle: 'medium',
-                        timeStyle: 'short'
-                      })}
-                    </time>
-                    <p>{entry.body}</p>
-                  </article>
-                ))
-              )}
-            </section>
-          </div>
-        )}
+        {page === 'History' && <HistoryPage searchRef={searchRef} />}
 
-        {page === 'Reports' && (
-          <div className="page">
-            <PageTitle
-              eyebrow="Daily reflection"
-              title="Reports"
-              description="Completion, response quality, activity patterns, and your full day timeline."
-            />
-            <section className="panel controls-panel">
-              <label>
-                <span>Report date</span>
-                <input
-                  type="date"
-                  value={reportDay}
-                  onChange={(event) => setReportDay(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Timezone</span>
-                <input
-                  value={reportTimezone}
-                  onChange={(event) => setReportTimezone(event.target.value)}
-                  placeholder="Europe/Warsaw"
-                />
-              </label>
-              <span className="day-length">
-                {report?.dayDurationMinutes ?? 1440} minute local day
-              </span>
-            </section>
-            {reportError && (
-              <p className="alert" role="alert">
-                {reportError}
-              </p>
-            )}
-            <section className="metric-grid report-metrics">
-              <article className="metric-card accent">
-                <span>Focus score</span>
-                <strong>{report?.focusScore ?? 0}%</strong>
-                <small>{report?.completedIntervals ?? 0} completed intervals</small>
-              </article>
-              <article className="metric-card">
-                <span>Average response</span>
-                <strong>{report?.averageResponseDelayMinutes ?? 0}</strong>
-                <small>minutes after due</small>
-              </article>
-              <article className="metric-card">
-                <span>Longest streak</span>
-                <strong>{report?.longestFocusStreak ?? 0}</strong>
-                <small>completed reminders</small>
-              </article>
-              <article className="metric-card">
-                <span>Tracked time</span>
-                <strong>{report?.totalTrackedMinutes ?? 0}</strong>
-                <small>minutes</small>
-              </article>
-            </section>
-            <div className="two-column">
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="section-label">Breakdown</span>
-                    <h2>Categories</h2>
-                  </div>
-                </div>
-                {report?.categories.length ? (
-                  <div className="category-list">
-                    {report.categories.map((category) => {
-                      const max = Math.max(...report.categories.map((item) => item.count), 1);
-                      return (
-                        <div key={category.name}>
-                          <span>{category.name}</span>
-                          <div>
-                            <i style={{ width: `${(category.count / max) * 100}%` }} />
-                          </div>
-                          <strong>{category.count}</strong>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState>No categorized entries.</EmptyState>
-                )}
-              </section>
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="section-label">Language</span>
-                    <h2>Activity cloud</h2>
-                  </div>
-                </div>
-                <p className="common-activity">
-                  {report?.mostCommonActivity ?? 'No common activity yet.'}
-                </p>
-                <div className="word-cloud" aria-label="Most used activity words">
-                  {report?.wordCloud.map((item, index) => (
-                    <span
-                      key={item.word}
-                      style={{ fontSize: `${1 + Math.max(0, 5 - index) * 0.08}rem` }}
-                    >
-                      {item.word}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            </div>
-            <section className="panel timeline">
-              <div className="panel-heading">
-                <div>
-                  <span className="section-label">Complete log</span>
-                  <h2>{report?.day ?? reportDay}</h2>
-                </div>
-                <span>
-                  {report?.missedIntervals ?? 0} missed · {report?.completionPercentage ?? 0}%
-                  complete
-                </span>
-              </div>
-              {report?.timeline.length ? (
-                report.timeline.map((entry) => (
-                  <article className="timeline-entry" key={entry.id}>
-                    <span className="timeline-dot" />
-                    <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
-                    <div>
-                      <strong>{entry.title}</strong>
-                      <p>{entry.detail}</p>
-                      {entry.originalTimezoneId && (
-                        <small>Recorded in {entry.originalTimezoneId}</small>
-                      )}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <EmptyState>No events recorded.</EmptyState>
-              )}
-            </section>
-            <section className="panel trend-strip">
-              <span>
-                7 days <strong>{report?.trends.weekly ?? 0}</strong>
-              </span>
-              <span>
-                30 days <strong>{report?.trends.monthly ?? 0}</strong>
-              </span>
-              <span>
-                365 days <strong>{report?.trends.yearly ?? 0}</strong>
-              </span>
-            </section>
-          </div>
-        )}
+        {page === 'Reports' && <ReportsPage />}
 
-        {page === 'Calendar' && (
-          <div className="page">
-            <PageTitle
-              eyebrow="Long-term rhythm"
-              title={`${reportYear} activity`}
-              description="Every day, one year, with intensity based on completed check-ins."
-            />
-            <section className="panel controls-panel">
-              <label>
-                <span>Calendar year</span>
-                <input
-                  type="number"
-                  min="1970"
-                  max="9998"
-                  value={reportYear}
-                  onChange={(event) => setReportYear(Number(event.target.value))}
-                />
-              </label>
-              <label>
-                <span>Timezone</span>
-                <input
-                  value={reportTimezone}
-                  onChange={(event) => setReportTimezone(event.target.value)}
-                />
-              </label>
-              <span className="legend">
-                Less
-                {[0, 1, 2, 3, 4].map((level) => (
-                  <i key={level} data-level={level} />
-                ))}
-                More
-              </span>
-            </section>
-            {reportError && (
-              <p className="alert" role="alert">
-                {reportError}
-              </p>
-            )}
-            <section className="panel heatmap-panel">
-              <p>{heatmapData?.metricDescription}</p>
-              <div
-                aria-label={`${reportYear} activity heatmap in ${reportTimezone}`}
-                className="heatmap-scroll"
-              >
-                <div className="heatmap">
-                  {Array.from(
-                    { length: new Date(Date.UTC(reportYear, 0, 1)).getUTCDay() },
-                    (_, index) => (
-                      <span
-                        className="heatmap-placeholder"
-                        aria-hidden="true"
-                        key={`pad-${index}`}
-                      />
-                    )
-                  )}
-                  {heatmapData?.days.map((entry) => (
-                    <button
-                      key={entry.day}
-                      aria-label={`${entry.day}: ${entry.value} check-ins, intensity ${entry.intensity} of 4`}
-                      title={`${entry.day}: ${entry.value} check-ins`}
-                      data-level={entry.intensity}
-                      data-selected={selectedDay === entry.day || undefined}
-                      onClick={() => {
-                        setSelectedDay(entry.day);
-                        void window.focuslog
-                          .dayLog({ day: entry.day, timezoneId: reportTimezone })
-                          .then(setSelectedDayLog);
-                      }}
-                    >
-                      <span className="visually-hidden">{entry.value}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-            {selectedDay && (
-              <section className="panel timeline day-detail">
-                <div className="panel-heading">
-                  <div>
-                    <span className="section-label">Complete day log</span>
-                    <h2>{selectedDay}</h2>
-                  </div>
-                  <button
-                    className="secondary-button"
-                    onClick={() => {
-                      setReportDay(selectedDay);
-                      setPage('Reports');
-                    }}
-                  >
-                    Open report
-                  </button>
-                </div>
-                {selectedDayLog.length ? (
-                  selectedDayLog.map((entry) => (
-                    <article className="timeline-entry" key={entry.id}>
-                      <span className="timeline-dot" />
-                      <time dateTime={entry.occurredAt}>{reportTime(entry.occurredAt)}</time>
-                      <div>
-                        <strong>{entry.title}</strong>
-                        <p>{entry.detail}</p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <EmptyState>No activity recorded.</EmptyState>
-                )}
-              </section>
-            )}
-          </div>
-        )}
+        {page === 'Calendar' && <CalendarPage />}
 
         {page === 'Settings' && (
           <div className="page settings-page">
@@ -940,6 +540,29 @@ export function App(): React.JSX.Element {
                 />
                 <span />
                 <span className="visually-hidden">Start FocusLog when Windows starts</span>
+              </label>
+            </section>
+
+            <section className="panel setting-row">
+              <div>
+                <h2>When I close the window</h2>
+                <p>
+                  Keep reminders running in the system tray, or explicitly exit the entire
+                  application.
+                </p>
+              </div>
+              <label>
+                <span className="visually-hidden">Close button behavior</span>
+                <select
+                  value={closeBehavior}
+                  onChange={async (event) => {
+                    const behavior = event.target.value as 'tray' | 'exit';
+                    setCloseBehavior(await window.focuslog.setCloseBehavior(behavior));
+                  }}
+                >
+                  <option value="tray">Close button minimizes to tray</option>
+                  <option value="exit">Exit application completely</option>
+                </select>
               </label>
             </section>
 
@@ -1097,13 +720,25 @@ export function App(): React.JSX.Element {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
             <span className="section-label">Quick capture</span>
             <h2 id="manual-title">Write a manual entry</h2>
-            <p>Capture useful context without interrupting your current reminder schedule.</p>
+            <p>
+              Begin with <code>&lt;category&gt;</code> to organize automatically. Without one, the
+              entry stays Uncategorized.
+            </p>
             <textarea
               autoFocus
               value={manualText}
               onChange={(event) => setManualText(event.target.value)}
-              placeholder="What are you working on?"
+              placeholder="<study> Solved a sliding window problem…"
             />
+            {categorySuggestions.length > 0 && (
+              <div className="category-autocomplete" aria-label="Category suggestions">
+                {categorySuggestions.map((category) => (
+                  <button key={category.id} onClick={() => setManualText(`<${category.name}> `)}>
+                    &lt;{category.name}&gt;
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="button-row end">
               <button
                 className="secondary-button"

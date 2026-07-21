@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
@@ -13,6 +14,65 @@ import '../sync/sync_worker.dart';
 
 const _channelId = 'focuslog_reminders';
 const _channelName = 'FocusLog reminders';
+
+const _initializationSettings = InitializationSettings(
+  android: AndroidInitializationSettings('@drawable/ic_notification'),
+);
+
+const _reminderDetails = NotificationDetails(
+  android: AndroidNotificationDetails(
+    _channelId,
+    _channelName,
+    channelDescription: 'Focus session check-in reminders',
+    importance: Importance.max,
+    priority: Priority.max,
+    category: AndroidNotificationCategory.reminder,
+    visibility: NotificationVisibility.public,
+    fullScreenIntent: true,
+    ongoing: true,
+    autoCancel: false,
+  ),
+);
+
+/// Stable across Dart processes so reboot recovery updates and cancels the
+/// original Android notification instead of creating a duplicate.
+int reminderNotificationId(String occurrenceId) {
+  var hash = 0x811c9dc5;
+  for (final byte in occurrenceId.codeUnits) {
+    hash ^= byte;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash & 0x7fffffff;
+}
+
+Future<bool> _canScheduleExact(
+    FlutterLocalNotificationsPlugin notifications) async {
+  final android = notifications.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  return await android?.canScheduleExactNotifications() ?? false;
+}
+
+Future<void> _scheduleNotification(
+  FlutterLocalNotificationsPlugin notifications,
+  String occurrenceId,
+  DateTime dueAt,
+) async {
+  final exact = await _canScheduleExact(notifications);
+  final now = DateTime.now();
+  final notificationTime =
+      dueAt.isAfter(now) ? dueAt : now.add(const Duration(seconds: 1));
+  await notifications.zonedSchedule(
+    reminderNotificationId(occurrenceId),
+    'FocusLog check-in',
+    'Open FocusLog to record what you are doing.',
+    tz.TZDateTime.from(notificationTime, tz.local),
+    _reminderDetails,
+    androidScheduleMode: exact
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle,
+    payload: occurrenceId,
+  );
+}
 
 /// Uses standard Android notifications and WorkManager. It deliberately does
 /// not attempt to defeat battery optimization, force-stop, or notification
@@ -26,10 +86,8 @@ class AndroidReminderScheduler implements ReminderScheduler {
   Stream<String> get notificationTaps => _notificationTaps.stream;
 
   Future<void> initialize() async {
-    const settings = InitializationSettings(
-        android: AndroidInitializationSettings('@drawable/ic_notification'));
     await _notifications.initialize(
-      settings,
+      _initializationSettings,
       onDidReceiveNotificationResponse: (response) {
         final occurrenceId = response.payload;
         if (occurrenceId != null && occurrenceId.isNotEmpty) {
@@ -41,6 +99,9 @@ class AndroidReminderScheduler implements ReminderScheduler {
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.requestNotificationsPermission();
     await android?.requestFullScreenIntentPermission();
+    if (await android?.canScheduleExactNotifications() == false) {
+      await android?.requestExactAlarmsPermission();
+    }
     await Workmanager()
         .initialize(backgroundCallbackDispatcher, isInDebugMode: false);
     await Workmanager().registerPeriodicTask(
@@ -60,41 +121,19 @@ class AndroidReminderScheduler implements ReminderScheduler {
   }
 
   @override
-  Future<void> schedule(String occurrenceId, DateTime dueAt) async {
-    final id = occurrenceId.hashCode & 0x7fffffff;
-    await _notifications.zonedSchedule(
-      id,
-      'FocusLog check-in',
-      'Open FocusLog to record what you are doing.',
-      tz.TZDateTime.from(dueAt, tz.local),
-      const NotificationDetails(
-          android: AndroidNotificationDetails(_channelId, _channelName,
-              channelDescription: 'Focus session check-in reminders',
-              importance: Importance.max,
-              priority: Priority.max,
-              category: AndroidNotificationCategory.reminder,
-              visibility: NotificationVisibility.public,
-              fullScreenIntent: true,
-              ongoing: true,
-              autoCancel: false)),
-      // flutter_local_notifications delegates this durable alarm to Android's
-      // AlarmManager. Inexact allow-while-idle avoids demanding restricted
-      // exact-alarm privileges while WorkManager supplies reconciliation.
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      payload: occurrenceId,
-    );
-  }
+  Future<void> schedule(String occurrenceId, DateTime dueAt) =>
+      _scheduleNotification(_notifications, occurrenceId, dueAt);
 
   @override
   Future<void> cancel(String occurrenceId) =>
-      _notifications.cancel(occurrenceId.hashCode & 0x7fffffff);
+      _notifications.cancel(reminderNotificationId(occurrenceId));
 
   @override
   Future<void> beginPresentation(String occurrenceId) async {
     final android = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.startForegroundService(
-      occurrenceId.hashCode & 0x7fffffff,
+      reminderNotificationId(occurrenceId),
       'FocusLog check-in is due',
       'Return to FocusLog and submit a response to complete this interval.',
       notificationDetails: const AndroidNotificationDetails(
@@ -146,6 +185,7 @@ void backgroundCallbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     if (task != 'focuslog-recovery') return true;
     WidgetsFlutterBinding.ensureInitialized();
+    tzdata.initializeTimeZones();
     final databaseKey = await DatabaseKeyService().loadOrCreate();
     final database = AppDatabase.encrypted(databaseKey);
     try {
@@ -153,6 +193,11 @@ void backgroundCallbackDispatcher() {
       final repository = FocusLogRepository(database, identity);
       await repository.ensureIdentity();
       await repository.recoverOverdueReminders(reason: 'workmanager');
+      final notifications = FlutterLocalNotificationsPlugin();
+      await notifications.initialize(_initializationSettings);
+      for (final reminder in await repository.scheduledReminders()) {
+        await _scheduleNotification(notifications, reminder.id, reminder.dueAt);
+      }
       const address = String.fromEnvironment('FOCUSLOG_API_URL');
       if (address.isEmpty) return true;
       final worker = SyncWorker(
@@ -162,9 +207,8 @@ void backgroundCallbackDispatcher() {
       );
       final result = await worker.synchronize();
       worker.dispose();
-      final notifications = FlutterLocalNotificationsPlugin();
       for (final occurrenceId in await repository.resolvedReminderIds()) {
-        await notifications.cancel(occurrenceId.hashCode & 0x7fffffff);
+        await notifications.cancel(reminderNotificationId(occurrenceId));
       }
       return result.status != 'retrying';
     } finally {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { openDesktopDatabase } from '../database/database.js';
-import { reminderIntervalMinutes, setReminderInterval, writeOwnerSettings } from './preferences.js';
+import {
+  closeBehavior,
+  reminderIntervalMinutes,
+  setCloseBehavior,
+  setReminderInterval,
+  writeOwnerSettings
+} from './preferences.js';
 
 const now = new Date('2026-07-20T12:00:00.000Z');
 
@@ -21,6 +27,17 @@ function fixture() {
 }
 
 describe('desktop reminder preferences', () => {
+  it('minimizes to the tray by default and persists an explicit exit preference', () => {
+    const database = fixture();
+    expect(closeBehavior(database, 'owner')).toBe('tray');
+    expect(setCloseBehavior(database, 'owner', 'exit', now)).toBe('exit');
+    expect(closeBehavior(database, 'owner')).toBe('exit');
+    expect(() => setCloseBehavior(database, 'owner', 'invalid' as 'tray', now)).toThrow(
+      'tray or exit'
+    );
+    database.close();
+  });
+
   it('uses 15 minutes by default and validates the supported custom range', () => {
     const database = fixture();
     expect(reminderIntervalMinutes(database, 'owner')).toBe(15);

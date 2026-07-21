@@ -113,4 +113,23 @@ void main() {
     );
     expect((await repository.scheduledReminders()).length, 1);
   });
+
+  test('due reminders remain eligible for notification after process recovery',
+      () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = FocusLogRepository(database, identity());
+    await repository.startFocusSession();
+    final dueAt = DateTime.now().toUtc().subtract(const Duration(minutes: 1));
+    await database.customStatement(
+      'UPDATE reminder_occurrences SET scheduled_at = ?, original_scheduled_at = ?',
+      [dueAt, dueAt],
+    );
+
+    await repository.recoverOverdueReminders(reason: 'workmanager');
+
+    final reminders = await repository.scheduledReminders();
+    expect(reminders, hasLength(1));
+    expect(reminders.single.state, 'DUE');
+  });
 }

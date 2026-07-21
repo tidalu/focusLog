@@ -2,6 +2,30 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export type ParsedJournalEntry = {
+  category: string;
+  text: string;
+  hasCategoryToken: boolean;
+};
+
+const categoryTokenPattern = /^<([^<>\r\n]{1,80})>\s*/u;
+
+export const normalizeJournalCategory = (value: string): string =>
+  value.trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
+
+export const parseJournalEntry = (value: string): ParsedJournalEntry => {
+  const body = value.trim();
+  const match = categoryTokenPattern.exec(body);
+  if (!match) return { category: 'Uncategorized', text: body, hasCategoryToken: false };
+  const category = normalizeJournalCategory(match[1] ?? '');
+  if (!category) return { category: 'Uncategorized', text: body, hasCategoryToken: false };
+  return {
+    category,
+    text: body.slice(match[0].length).trim(),
+    hasCategoryToken: true
+  };
+};
+
 import { Temporal } from '@js-temporal/polyfill';
 
 export type ReportDayBounds = {

@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { parseJournalEntry } from '@focuslog/shared-utils';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 
@@ -108,6 +109,29 @@ interface ConflictDetails {
 
 export class SyncService {
   constructor(private readonly prisma: PrismaClient) {}
+
+  private async inferredCategoryId(
+    tx: Prisma.TransactionClient,
+    ownerId: string,
+    body: string,
+    occurredAt: Date
+  ): Promise<string | null> {
+    const parsed = parseJournalEntry(body);
+    if (!parsed.hasCategoryToken) return null;
+    const category = await tx.category.upsert({
+      where: { ownerId_name: { ownerId, name: parsed.category } },
+      update: { deletedAt: null, updatedAt: occurredAt },
+      create: {
+        id: ulid(),
+        ownerId,
+        name: parsed.category,
+        version: ulid(),
+        createdAt: occurredAt,
+        updatedAt: occurredAt
+      }
+    });
+    return category.id;
+  }
 
   async push(ownerId: string, deviceId: string, operations: readonly SyncInputOperation[]) {
     const results: Array<{
@@ -230,6 +254,12 @@ export class SyncService {
           localPayload: this.checkInSnapshot(current),
           remotePayload: operation.payload as Prisma.InputJsonValue
         };
+      const categoryId = await this.inferredCategoryId(
+        tx,
+        ownerId,
+        payload.body,
+        payload.submittedAt
+      );
       await tx.checkIn.create({
         data: {
           id: operation.entityId,
@@ -238,6 +268,7 @@ export class SyncService {
           submittedAt: payload.submittedAt,
           timezoneId: payload.timezoneId,
           reminderOccurrenceId: payload.reminderOccurrenceId,
+          categoryId,
           version: payload.revisionId
         }
       });
@@ -271,6 +302,12 @@ export class SyncService {
 
     if (operation.kind === 'check_in.revise') {
       const payload = checkInRevisionPayload.parse(operation.payload);
+      const categoryId = await this.inferredCategoryId(
+        tx,
+        ownerId,
+        payload.body,
+        payload.createdAt
+      );
       await tx.checkInRevision.create({
         data: {
           id: payload.revisionId,
@@ -284,7 +321,7 @@ export class SyncService {
       });
       await tx.checkIn.update({
         where: { id: operation.entityId },
-        data: { currentRevisionId: payload.revisionId, version: payload.revisionId }
+        data: { categoryId, currentRevisionId: payload.revisionId, version: payload.revisionId }
       });
       return undefined;
     }
@@ -450,12 +487,19 @@ export class SyncService {
           operationId: operation.operationId
         }
       });
+      const categoryId = await this.inferredCategoryId(
+        tx,
+        ownerId,
+        payload.body,
+        payload.completedAt
+      );
       await tx.checkIn.create({
         data: {
           id: payload.checkInId,
           ownerId,
           reminderOccurrenceId: occurrence.id,
           focusSessionId: occurrence.focusSessionId,
+          categoryId,
           currentRevisionId: payload.revisionId,
           submittedAt: payload.completedAt,
           timezoneId: occurrence.timezoneId,

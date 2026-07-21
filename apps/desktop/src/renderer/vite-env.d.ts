@@ -7,6 +7,7 @@ interface Window {
       offline: boolean;
       databaseReady: boolean;
       startupEnabled: boolean;
+      closeBehavior: 'tray' | 'exit';
       queuedOperations: number;
       lastSynchronizedAt?: string;
       lastSynchronizationError?: string;
@@ -39,6 +40,7 @@ interface Window {
     }>;
     bootstrapDevice(apiUrl?: string): Promise<{ ownerId: string; deviceId: string }>;
     setStartup(enabled: boolean): Promise<boolean>;
+    setCloseBehavior(behavior: 'tray' | 'exit'): Promise<'tray' | 'exit'>;
     createBackup(kind: 'BACKUP' | 'EXPORT'): Promise<{ path: string; recoveryKey: string } | null>;
     restoreBackup(
       recoveryKey: string
@@ -61,7 +63,20 @@ interface Window {
       tagId?: string;
       categoryId?: string;
       sessionId?: string;
-    }): Promise<Array<{ id: string; body: string; submittedAt: string; rank: number }>>;
+      day?: string;
+      timezoneId?: string;
+    }): Promise<
+      Array<{
+        id: string;
+        body: string;
+        submittedAt: string;
+        rank: number;
+        category: string;
+        device: string;
+        responseDelaySeconds: number | null;
+        focusSessionId: string | null;
+      }>
+    >;
     searchFilters(): Promise<{
       tags: Array<{ id: string; name: string }>;
       categories: Array<{ id: string; name: string }>;
@@ -77,7 +92,14 @@ interface Window {
       focusScore: number;
       completionPercentage: number;
       averageResponseDelayMinutes: number;
+      averageResponseDelaySeconds: number;
       longestFocusStreak: number;
+      longestFocusStreakMinutes: number;
+      entryCount: number;
+      mostActiveHour: number | null;
+      hourlyActivity: Array<{ hour: number; count: number }>;
+      mostProductivePeriod: string | null;
+      biggestDistraction: string | null;
       mostCommonActivity: string | null;
       wordCloud: Array<{ word: string; count: number }>;
       categories: Array<{ name: string; count: number }>;
@@ -95,6 +117,9 @@ interface Window {
         title: string;
         detail: string;
         originalTimezoneId?: string;
+        category?: string;
+        device?: string;
+        responseDelaySeconds?: number;
       }>;
       trends: { weekly: number; monthly: number; yearly: number };
     }>;

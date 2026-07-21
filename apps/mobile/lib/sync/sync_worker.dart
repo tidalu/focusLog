@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../data/database/app_database.dart';
+import '../data/journal_category.dart';
 import '../identity/device_identity.dart';
 
 class SyncWorker {
@@ -31,6 +32,41 @@ class SyncWorker {
   final http.Client _client;
   final Future<List<ConnectivityResult>> Function() _connectivityCheck;
   final DateTime Function() _clock;
+
+  Future<String?> _inferredCategoryId(String body, DateTime occurredAt) async {
+    final parsed = parseJournalEntry(body);
+    if (!parsed.hasCategoryToken) return null;
+    final existing = await database.customSelect(
+      'SELECT id, deleted_at FROM categories WHERE owner_id = ? AND name = ?',
+      variables: [
+        Variable.withString(identity.ownerId),
+        Variable.withString(parsed.category),
+      ],
+    ).getSingleOrNull();
+    if (existing != null) {
+      final categoryId = existing.read<String>('id');
+      if (existing.readNullable<DateTime>('deleted_at') != null) {
+        await database.customStatement(
+          'UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?',
+          [occurredAt, categoryId],
+        );
+      }
+      return categoryId;
+    }
+    final categoryId = generateSyncId();
+    await database.customStatement(
+      'INSERT INTO categories (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        categoryId,
+        identity.ownerId,
+        parsed.category,
+        generateSyncId(),
+        occurredAt,
+        occurredAt,
+      ],
+    );
+    return categoryId;
+  }
 
   Future<SyncResult> synchronize() async {
     final connection = await _connectivityCheck();
@@ -447,13 +483,18 @@ class SyncWorker {
         ],
       );
     }
+    final categoryId = await _inferredCategoryId(
+      payload['body'] as String,
+      completedAt,
+    );
     await database.customStatement(
-      'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         payload['checkInId'],
         identity.ownerId,
         occurrenceId,
         occurrence.read<String>('focus_session_id'),
+        categoryId,
         payload['revisionId'],
         completedAt,
         occurrence.read<String>('timezone_id'),
@@ -496,11 +537,16 @@ class SyncWorker {
       return;
     }
     final submittedAt = DateTime.parse(payload['submittedAt'] as String);
+    final categoryId = await _inferredCategoryId(
+      payload['body'] as String,
+      submittedAt,
+    );
     await database.customStatement(
-      'INSERT INTO check_ins (id, owner_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO check_ins (id, owner_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         entityId,
         identity.ownerId,
+        categoryId,
         payload['revisionId'],
         submittedAt,
         payload['timezoneId'],
@@ -538,6 +584,10 @@ class SyncWorker {
       return;
     }
     final createdAt = DateTime.parse(payload['createdAt'] as String);
+    final categoryId = await _inferredCategoryId(
+      payload['body'] as String,
+      createdAt,
+    );
     await database.customStatement(
       'INSERT OR IGNORE INTO check_in_revisions (id, check_in_id, parent_revision_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
@@ -551,8 +601,9 @@ class SyncWorker {
       ],
     );
     await database.customStatement(
-      'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
+      'UPDATE check_ins SET category_id = ?, current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
       [
+        categoryId,
         payload['revisionId'],
         payload['revisionId'],
         DateTime.now().toUtc(),

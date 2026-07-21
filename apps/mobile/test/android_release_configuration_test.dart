@@ -15,6 +15,7 @@ void main() {
           contains('android.permission.FOREGROUND_SERVICE_SPECIAL_USE'));
       expect(manifest, contains('android.permission.POST_NOTIFICATIONS'));
       expect(manifest, contains('android.permission.RECEIVE_BOOT_COMPLETED'));
+      expect(manifest, contains('android.permission.SCHEDULE_EXACT_ALARM'));
       expect(manifest, contains('ScheduledNotificationBootReceiver'));
       expect(manifest, contains('flutterlocalnotifications.ForegroundService'));
       expect(manifest, contains('android:showWhenLocked="true"'));
@@ -34,6 +35,22 @@ void main() {
 
     expect(gradle, contains('A release signing key is required'));
     expect(gradle, isNot(contains('signingConfigs.debug')));
+  });
+
+  test('background recovery uses WorkManager and reschedules durable alarms',
+      () {
+    final source = File('lib/reminders/android_reminder_scheduler.dart')
+        .readAsStringSync();
+
+    expect(source, contains('registerPeriodicTask'));
+    expect(source, contains('requestExactAlarmsPermission'));
+    expect(source, contains('AndroidScheduleMode.exactAllowWhileIdle'));
+    expect(source, contains('AndroidScheduleMode.inexactAllowWhileIdle'));
+    expect(source, contains("recoverOverdueReminders(reason: 'workmanager')"));
+    expect(source, contains('repository.scheduledReminders()'));
+    expect(source, contains('_scheduleNotification('));
+    expect(source, contains('reminderNotificationId(occurrenceId)'));
+    expect(source, isNot(contains('occurrenceId.hashCode')));
   });
 
   test('mandatory reminder screen has no in-application dismissal control', () {

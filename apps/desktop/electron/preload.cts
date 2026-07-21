@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('focuslog', {
   getDeviceIdentity: () => ipcRenderer.invoke('focuslog:device-identity'),
   bootstrapDevice: (apiUrl?: string) => ipcRenderer.invoke('focuslog:bootstrap-device', apiUrl),
   setStartup: (enabled: boolean) => ipcRenderer.invoke('focuslog:set-startup', enabled),
+  setCloseBehavior: (behavior: 'tray' | 'exit') =>
+    ipcRenderer.invoke('focuslog:set-close-behavior', behavior),
   createBackup: (kind: 'BACKUP' | 'EXPORT') => ipcRenderer.invoke('focuslog:create-backup', kind),
   restoreBackup: (recoveryKey: string) =>
     ipcRenderer.invoke('focuslog:restore-backup', recoveryKey),
@@ -29,8 +31,14 @@ contextBridge.exposeInMainWorld('focuslog', {
   resumeFocusSession: () => ipcRenderer.invoke('focuslog:resume-focus-session'),
   stopFocusSession: () => ipcRenderer.invoke('focuslog:stop-focus-session'),
   createManualEntry: (text: string) => ipcRenderer.invoke('focuslog:create-manual-entry', text),
-  history: (filters: { query?: string; tagId?: string; categoryId?: string; sessionId?: string }) =>
-    ipcRenderer.invoke('focuslog:history', filters),
+  history: (filters: {
+    query?: string;
+    tagId?: string;
+    categoryId?: string;
+    sessionId?: string;
+    day?: string;
+    timezoneId?: string;
+  }) => ipcRenderer.invoke('focuslog:history', filters),
   searchFilters: () => ipcRenderer.invoke('focuslog:search-filters'),
   report: (selection: { day: string; timezoneId: string }) =>
     ipcRenderer.invoke('focuslog:report', selection),

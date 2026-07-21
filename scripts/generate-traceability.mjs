@@ -60,7 +60,7 @@ const rows = [
   [
     'REM-003',
     'ACC-032',
-    'apps/desktop/electron/reminders/scheduler.test.ts; apps/mobile/test/reminders/reminder_recovery_test.dart',
+    'apps/desktop/electron/reminders/scheduler.test.ts; apps/desktop/src/renderer/foundation.test.ts; apps/mobile/test/reminders/reminder_recovery_test.dart; apps/mobile/test/reminders/notification_id_test.dart; apps/mobile/test/android_release_configuration_test.dart',
     'automated'
   ],
   [

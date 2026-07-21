@@ -1,5 +1,6 @@
 import { ulid } from 'ulid';
 
+import { inferredCategoryId } from './category-inference.js';
 import type { DesktopDatabase } from './database.js';
 
 function nextDeviceSequence(database: DesktopDatabase, ownerId: string, deviceId: string): number {
@@ -67,15 +68,17 @@ export function createOfflineCheckIn(
   const revisionId = ulid();
   const operationId = ulid();
   database.transaction(() => {
+    const categoryId = inferredCategoryId(database, input.ownerId, input.body, submittedAt);
     database
       .prepare(
-        'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         checkInId,
         input.ownerId,
         input.reminderOccurrenceId ?? null,
         input.focusSessionId ?? null,
+        categoryId,
         revisionId,
         submittedAt,
         timezoneId,
@@ -123,6 +126,7 @@ export function reviseOfflineCheckIn(
   const revisionId = ulid();
   const operationId = ulid();
   database.transaction(() => {
+    const categoryId = inferredCategoryId(database, input.ownerId, input.body, createdAt);
     database
       .prepare(
         'INSERT INTO check_in_revisions (id, check_in_id, parent_revision_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -138,9 +142,9 @@ export function reviseOfflineCheckIn(
       );
     database
       .prepare(
-        'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
+        'UPDATE check_ins SET category_id = ?, current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
       )
-      .run(revisionId, revisionId, createdAt, input.checkInId);
+      .run(categoryId, revisionId, revisionId, createdAt, input.checkInId);
     queueSyncOperation(database, {
       ownerId: input.ownerId,
       deviceId: input.deviceId,

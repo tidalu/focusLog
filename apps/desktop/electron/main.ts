@@ -26,12 +26,15 @@ import { createOfflineCheckIn } from './database/local-sync.js';
 import { defaultReminderPolicy, parseReminderPolicy } from './reminders/policy.js';
 import { queueReminderSchedule, transitionReminderOffline } from './reminders/operations.js';
 import {
+  closeBehavior,
   maximumReminderInterval,
   minimumReminderInterval,
   readOwnerSettings,
   reminderIntervalChoices,
   reminderIntervalMinutes,
+  setCloseBehavior,
   setReminderInterval,
+  type CloseBehavior,
   writeOwnerSettings
 } from './reminders/preferences.js';
 import { loadOrCreateProtectedSecret } from './security/protected-secret.js';
@@ -49,6 +52,7 @@ import { searchCheckIns, type CheckInSearchFilters } from './database/check-in-s
 
 let scheduler: ReminderScheduler | undefined;
 let tray: Tray | undefined;
+let mainWindow: BrowserWindow | undefined;
 let desktopDatabase: ReturnType<typeof openDesktopDatabase> | undefined;
 let identity: DeviceIdentity | undefined;
 let ownerId = '';
@@ -62,8 +66,16 @@ let lastSynchronizedAt: string | undefined;
 let lastSynchronizationError: string | undefined;
 const focusLogApiUrl =
   process.env.FOCUSLOG_API_URL?.trim() || 'https://focuslog-backend.onrender.com';
+const startedInBackground = process.argv.includes('--background');
 
-function createWindow(): BrowserWindow {
+function showMainWindow(): BrowserWindow {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return mainWindow;
+  }
+
   const window = new BrowserWindow({
     width: 1024,
     height: 768,
@@ -75,8 +87,30 @@ function createWindow(): BrowserWindow {
       preload: join(import.meta.dirname, 'preload.cjs')
     }
   });
+  mainWindow = window;
 
   window.once('ready-to-show', () => window.show());
+  window.on('close', (event) => {
+    if (isQuitting || !desktopDatabase) return;
+    if (closeBehavior(desktopDatabase, ownerId) === 'exit') {
+      isQuitting = true;
+      app.quit();
+      return;
+    }
+    event.preventDefault();
+    window.hide();
+  });
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = undefined;
+  });
+  window.webContents.on('render-process-gone', () => {
+    if (isQuitting) return;
+    const wasVisible = window.isVisible();
+    if (!window.isDestroyed()) window.destroy();
+    setTimeout(() => {
+      if (!isQuitting && wasVisible) showMainWindow();
+    }, 250);
+  });
   void window.loadFile(join(import.meta.dirname, '../dist/renderer/index.html'));
   return window;
 }
@@ -102,14 +136,26 @@ function ensureLocalIdentity(): void {
     );
 }
 
+function trayIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#5b5bd6"/><circle cx="16" cy="16" r="8" fill="none" stroke="white" stroke-width="3"/><circle cx="16" cy="16" r="2.5" fill="white"/></svg>`;
+  return nativeImage
+    .createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`)
+    .resize({ width: 16, height: 16 });
+}
+
 function configureWindowsStartup(database: ReturnType<typeof openDesktopDatabase>): void {
   if (process.platform !== 'win32') return;
   const values = readOwnerSettings(database, ownerId);
   const enabled = typeof values.startupEnabled === 'boolean' ? values.startupEnabled : true;
-  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    openAsHidden: true,
+    args: enabled ? ['--background'] : []
+  });
   writeOwnerSettings(database, ownerId, {
     ...values,
     startupEnabled: enabled,
+    closeBehavior: values.closeBehavior === 'exit' ? 'exit' : 'tray',
     reminderIntervalMinutes:
       typeof values.reminderIntervalMinutes === 'number'
         ? values.reminderIntervalMinutes
@@ -183,6 +229,22 @@ function createReminderOverlay(occurrenceId: string): void {
       event.preventDefault();
     }
   });
+  overlay.webContents.on('render-process-gone', () => {
+    if (isQuitting || !desktopDatabase) return;
+    const row = desktopDatabase
+      .prepare('SELECT state FROM reminder_occurrences WHERE id = ?')
+      .get(occurrenceId) as { state: string } | undefined;
+    if (
+      !row ||
+      ['COMPLETED', 'MISSED', 'SKIPPED', 'EMERGENCY_DISMISSED', 'SUPERSEDED'].includes(row.state)
+    )
+      return;
+    reminderOverlays.delete(occurrenceId);
+    if (!overlay.isDestroyed()) overlay.destroy();
+    setTimeout(() => {
+      if (!isQuitting) createReminderOverlay(occurrenceId);
+    }, 250);
+  });
   overlay.on('closed', () => reminderOverlays.delete(occurrenceId));
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FocusLog reminder</title><style>:root{color-scheme:dark;font-family:Inter,"Segoe UI",system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 15%,#272b3c 0,#101119 42%,#07080d 100%);color:#f7f7fb;animation:appear .24s ease-out}body::before{content:"";position:fixed;inset:0;background:rgba(5,6,10,.42);backdrop-filter:blur(18px)}main{position:relative;width:min(820px,calc(100vw - 64px));display:grid;gap:30px}h1{max-width:760px;margin:0;font-size:clamp(34px,4.3vw,64px);font-weight:650;letter-spacing:-.045em;line-height:1.05}form{display:grid;gap:14px}label{font-size:14px;font-weight:650;color:#aeb2c3;letter-spacing:.02em}textarea{width:100%;min-height:230px;resize:none;border:1px solid #ffffff24;border-radius:24px;padding:24px 26px;background:#171922e8;color:#fff;box-shadow:0 24px 70px #0008,inset 0 1px #ffffff12;font:500 clamp(20px,2vw,28px)/1.45 inherit;outline:none;transition:border-color .18s,box-shadow .18s}textarea:focus{border-color:#8d91ff;box-shadow:0 0 0 4px #777cff2b,0 30px 90px #0009}.footer{display:flex;align-items:center;justify-content:space-between;gap:20px}.counter{margin:0;color:#aeb2c3;font-size:15px}.counter.ready{color:#7ce7ae}button{border:0;border-radius:16px;padding:15px 28px;background:linear-gradient(135deg,#8a8fff,#6d63ef);color:white;font:700 16px inherit;box-shadow:0 12px 30px #6d63ef42;cursor:pointer;transition:transform .16s,opacity .16s}button:hover:not(:disabled){transform:translateY(-2px)}button:focus-visible{outline:3px solid #fff;outline-offset:4px}button:disabled{cursor:not-allowed;opacity:.36;box-shadow:none}body.resolved{animation:resolve .24s ease-in forwards}@keyframes appear{from{opacity:0;transform:scale(1.015)}to{opacity:1;transform:none}}@keyframes resolve{to{opacity:0;transform:scale(.985)}}@media(max-width:640px){main{width:calc(100vw - 32px)}.footer{align-items:stretch;flex-direction:column}button{width:100%}}</style></head><body><main aria-labelledby="question"><h1 id="question">What did you accomplish during the last ${intervalMinutes} minutes?</h1><form id="form"><label for="response">Your response</label><textarea id="response" required minlength="20" aria-describedby="counter" autocomplete="off" spellcheck="true"></textarea><div class="footer"><p id="counter" class="counter" aria-live="polite">0 / 20</p><button id="submit" type="submit" disabled>Submit check-in</button></div></form></main><script>const id=${JSON.stringify(occurrenceId)};const field=document.querySelector('#response');const button=document.querySelector('#submit');const counter=document.querySelector('#counter');let saving;function update(){const count=[...field.value.trim()].length;button.disabled=count<20;counter.textContent=count+' / 20'+(count>=20?' ✓':'');counter.classList.toggle('ready',count>=20);clearTimeout(saving);saving=setTimeout(()=>window.focuslog.preserveDraft(id,field.value),80)}field.addEventListener('input',update);document.querySelector('#form').addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;try{await window.focuslog.completeReminder(id,field.value);document.body.classList.add('resolved')}catch(error){button.disabled=false;counter.textContent=error instanceof Error?error.message:'Unable to save your response'}});window.focuslog.getDraft(id).then(text=>{field.value=text;update();field.focus();field.setSelectionRange(field.value.length,field.value.length)});window.addEventListener('focus',()=>field.focus());</script></body></html>`;
   void overlay.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
@@ -234,9 +296,15 @@ function scheduleSessionReminder(
   return occurrenceId;
 }
 
-app
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
+app.on('second-instance', () => showMainWindow());
+void app
   .whenReady()
   .then(() => {
+    if (!hasSingleInstanceLock) return;
     const userDataPath = app.getPath('userData');
     const databasePath = join(userDataPath, 'focuslog.sqlite');
     const databaseKeyPath = join(userDataPath, 'database-key.bin');
@@ -305,10 +373,12 @@ app
       );
       websocketClient.start();
     }
-    tray = new Tray(nativeImage.createEmpty());
+    tray = new Tray(trayIcon());
+    tray.setToolTip('FocusLog reminders are running');
+    tray.on('double-click', () => showMainWindow());
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: 'Open FocusLog', click: () => createWindow() },
+        { label: 'Open FocusLog', click: () => showMainWindow() },
         {
           label: 'Quit',
           click: () => {
@@ -334,6 +404,7 @@ app
         databaseReady: Boolean(desktopDatabase),
         startupEnabled:
           process.platform === 'win32' ? app.getLoginItemSettings().openAtLogin : false,
+        closeBehavior: closeBehavior(database, ownerId),
         queuedOperations,
         lastSynchronizedAt,
         lastSynchronizationError
@@ -396,7 +467,11 @@ app
     });
     ipcMain.handle('focuslog:set-startup', (_event, enabled: boolean) => {
       if (process.platform === 'win32') {
-        app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+        app.setLoginItemSettings({
+          openAtLogin: enabled,
+          openAsHidden: true,
+          args: enabled ? ['--background'] : []
+        });
         writeOwnerSettings(database, ownerId, {
           ...readOwnerSettings(database, ownerId),
           startupEnabled: enabled
@@ -404,6 +479,9 @@ app
       }
       return enabled;
     });
+    ipcMain.handle('focuslog:set-close-behavior', (_event, behavior: CloseBehavior) =>
+      setCloseBehavior(database, ownerId, behavior)
+    );
     ipcMain.handle('focuslog:create-backup', async (_event, kind: 'BACKUP' | 'EXPORT') => {
       const extension = kind === 'EXPORT' ? 'focuslog-export' : 'focuslog-backup';
       const selection = await dialog.showSaveDialog({
@@ -727,12 +805,10 @@ app
         pairingId
       );
     });
-    createWindow();
+    if (!startedInBackground) showMainWindow();
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-      }
+      showMainWindow();
     });
   })
   .catch((error: unknown) => {
@@ -746,7 +822,7 @@ app
   });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
     app.quit();
   }
 });
