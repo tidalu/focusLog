@@ -17,5 +17,10 @@ void main() {
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'outbox_operations'")
         .getSingle();
     expect(outbox.data['name'], 'outbox_operations');
+    final sections = await database
+        .customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'log_sections'")
+        .getSingle();
+    expect(sections.data['name'], 'log_sections');
   });
 }

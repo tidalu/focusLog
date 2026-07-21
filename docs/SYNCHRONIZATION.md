@@ -41,7 +41,7 @@ The signed canonical representation includes the body hash, timestamp, nonce, de
 
 ### Push
 
-`POST /v1/sync/push` accepts bounded ordered batches. For every operation it returns one of: `accepted`, `duplicate`, `conflict`, or `rejected` with a stable machine-readable reason.
+`POST /api/v1/sync/push` accepts bounded ordered batches. For every operation it returns one of: `accepted`, `duplicate`, `conflict`, or `rejected` with a stable machine-readable reason.
 
 - `accepted` means the operation was applied transactionally and assigned a server change sequence.
 - `duplicate` returns the original durable result for a prior operation ID.
@@ -50,7 +50,13 @@ The signed canonical representation includes the body hash, timestamp, nonce, de
 
 ### Pull
 
-`GET /v1/sync/pull?cursor={sequence}` returns a bounded, ordered page of owner-scoped changes after that cursor and a next cursor. A client applies the full page and advances its local cursor in one transaction. If the cursor has expired or is invalid, the server directs a paginated snapshot hydration followed by normal cursor pull.
+`GET /api/v1/sync/pull?cursor={sequence}` returns a bounded, ordered page of owner-scoped changes after that cursor and a next cursor. A client applies the full page and advances its local cursor in one transaction. If the cursor has expired or is invalid, the server directs a paginated snapshot hydration followed by normal cursor pull.
+
+### Journal section payloads
+
+`check_in.create`, `check_in.revise`, and `reminder.complete` operations carry the immutable raw body plus an ordered `sections` array. Each section includes its ULID, normalized category path segments, canonical path, body, optional string metadata, and position. The backend validates identifiers, path bounds, unique positions, and metadata shape before materialization.
+
+The raw body remains the conflict source of truth. Section data is a deterministic, query-oriented projection and is never allowed to overwrite a sibling authored revision. During rolling upgrades, a receiver that gets an older operation without `sections` runs the same deterministic parser locally; duplicate operations remain harmless because the operation envelope and section constraints are idempotent.
 
 ## Offline queue and retries
 

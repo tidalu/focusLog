@@ -90,7 +90,8 @@ void main() {
         connectivityCheck: () async => [ConnectivityResult.wifi],
         clock: () => start.add(const Duration(minutes: 5)),
       );
-      expect((await recovered.synchronize()).status, 'synced');
+      final recoveredResult = await recovered.synchronize();
+      expect(recoveredResult.status, 'synced', reason: recoveredResult.message);
       recovered.dispose();
 
       final outbox = await database.customSelect(

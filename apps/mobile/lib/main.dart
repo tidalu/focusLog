@@ -18,10 +18,37 @@ import 'identity/device_identity.dart';
 import 'identity/focuslog_api_client.dart';
 import 'reminders/android_reminder_scheduler.dart';
 import 'reminders/reminder_scheduler.dart';
-import 'sync/sync_worker.dart';
-import 'sync/websocket_client.dart';
 import 'security/encrypted_backup.dart';
 import 'security/permanent_deletion.dart';
+import 'sync/sync_worker.dart';
+import 'sync/websocket_client.dart';
+
+List<({String path, String leaf})> _categorySuggestions(
+  String text,
+  List<String> categories,
+) {
+  final match = RegExp(r'(?:^|\n)((?:<[^>\n]+>)*)<([^>\n]*)$').firstMatch(text);
+  if (match == null) return const [];
+  final parents = RegExp(r'<([^>]+)>')
+      .allMatches(match.group(1) ?? '')
+      .map((token) => (token.group(1) ?? '').trim().toLowerCase())
+      .toList(growable: false);
+  final prefix = (match.group(2) ?? '').trim().toLowerCase();
+  return categories
+      .map((path) => (path: path, segments: path.split('/')))
+      .where((category) =>
+          category.segments.length == parents.length + 1 &&
+          List.generate(parents.length,
+                  (index) => category.segments[index] == parents[index])
+              .every((matches) => matches) &&
+          category.segments.last.startsWith(prefix))
+      .map((category) => (path: category.path, leaf: category.segments.last))
+      .take(5)
+      .toList(growable: false);
+}
+
+String _applyCategorySuggestion(String text, String leaf) =>
+    '${text.substring(0, text.lastIndexOf('<'))}<$leaf> ';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -430,15 +457,7 @@ class _DashboardState extends State<_Dashboard> {
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setComposerState) {
-          final match = RegExp(r'^<([^>]*)$').firstMatch(controller.text);
-          final prefix = match?.group(1)?.trim().toLowerCase();
-          final suggestions = prefix == null
-              ? const <String>[]
-              : categories
-                  .where((category) =>
-                      category.toLowerCase().startsWith(prefix))
-                  .take(5)
-                  .toList();
+          final suggestions = _categorySuggestions(controller.text, categories);
           return Padding(
             padding: EdgeInsets.fromLTRB(
                 20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 24),
@@ -446,7 +465,7 @@ class _DashboardState extends State<_Dashboard> {
               Text('Quick check-in',
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 6),
-              Text('Start with <category> to organize automatically.',
+              Text('Use <category> blocks to create one or more sections.',
                   style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 16),
               TextField(
@@ -456,7 +475,8 @@ class _DashboardState extends State<_Dashboard> {
                 maxLines: 6,
                 onChanged: (_) => setComposerState(() {}),
                 decoration: const InputDecoration(
-                    hintText: '<study> What are you working on?'),
+                    hintText:
+                        '<study><leetcode>\nWhat are you working on?\n\n<sleep>\nHow did you rest?'),
               ),
               if (suggestions.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -467,9 +487,10 @@ class _DashboardState extends State<_Dashboard> {
                     children: [
                       for (final category in suggestions)
                         ActionChip(
-                          label: Text('<$category>'),
+                          label: Text('<${category.path}>'),
                           onPressed: () {
-                            controller.text = '<$category> ';
+                            controller.text = _applyCategorySuggestion(
+                                controller.text, category.leaf);
                             controller.selection = TextSelection.collapsed(
                                 offset: controller.text.length);
                             setComposerState(() {});
@@ -805,104 +826,94 @@ class _ReminderScreenState extends State<_ReminderScreen>
 
   @override
   Widget build(BuildContext context) {
-    final match = RegExp(r'^<([^>]*)$').firstMatch(_controller.text);
-    final prefix = match?.group(1)?.trim().toLowerCase();
-    final suggestions = prefix == null
-        ? const <String>[]
-        : _categories
-            .where((category) => category.toLowerCase().startsWith(prefix))
-            .take(5)
-            .toList();
+    final suggestions = _categorySuggestions(_controller.text, _categories);
     return PopScope(
-        canPop: _completed,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop && !_completed) _focusNode.requestFocus();
-        },
-        child: Scaffold(
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Icon(Icons.adjust,
-                          size: 44,
-                          color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(height: 28),
-                      Text(
-                        'What did you accomplish during the last $_interval minutes?',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context)
-                            .textTheme
-                            .displaySmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+      canPop: _completed,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_completed) _focusNode.requestFocus();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.adjust,
+                        size: 44, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: 28),
+                    Text(
+                      'What did you accomplish during the last $_interval minutes?',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .displaySmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 28),
+                    TextField(
+                      controller: _controller,
+                      focusNode: _focusNode,
+                      autofocus: true,
+                      minLines: 7,
+                      maxLines: 12,
+                      textInputAction: TextInputAction.newline,
+                      decoration: InputDecoration(
+                        hintText:
+                            '<study><leetcode>\nDescribe what you completed or learned.',
+                        helperText: _length < 20
+                            ? '${20 - _length} more characters required'
+                            : 'Ready to submit',
+                        suffixText: '$_length / 20',
                       ),
-                      const SizedBox(height: 28),
-                      TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        autofocus: true,
-                        minLines: 7,
-                        maxLines: 12,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          hintText:
-                              '<study> Describe what you completed or learned.',
-                          helperText: _length < 20
-                              ? '${20 - _length} more characters required'
-                              : 'Ready to submit',
-                          suffixText: '$_length / 20',
-                        ),
-                      ),
-                      if (suggestions.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final category in suggestions)
-                              ActionChip(
-                                label: Text('<$category>'),
-                                onPressed: () {
-                                  _controller.text = '<$category> ';
-                                  _controller.selection =
-                                      TextSelection.collapsed(
-                                          offset: _controller.text.length);
-                                  _focusNode.requestFocus();
-                                },
-                              ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed:
-                            _length >= 20 && !_submitting ? _submit : null,
-                        child: _submitting
-                            ? const SizedBox.square(
-                                dimension: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Submit check-in'),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Your unfinished response is saved on this device.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (suggestions.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final category in suggestions)
+                            ActionChip(
+                              label: Text('<${category.path}>'),
+                              onPressed: () {
+                                _controller.text = _applyCategorySuggestion(
+                                    _controller.text, category.leaf);
+                                _controller.selection = TextSelection.collapsed(
+                                    offset: _controller.text.length);
+                                _focusNode.requestFocus();
+                              },
+                            ),
+                        ],
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _length >= 20 && !_submitting ? _submit : null,
+                      child: _submitting
+                          ? const SizedBox.square(
+                              dimension: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Submit check-in'),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Your unfinished response is saved on this device.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 }
 
@@ -1049,8 +1060,18 @@ String _journalDayLabel(DateTime date) {
   if (value == today) return 'Today';
   if (value == today.subtract(const Duration(days: 1))) return 'Yesterday';
   const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
   ];
   return '${months[date.month - 1]} ${date.day}';
 }
@@ -1094,11 +1115,8 @@ class _JournalEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parsed = parseJournalEntry(entry.body);
     final local = entry.submittedAt.toLocal();
-    final category = entry.category == 'Uncategorized'
-        ? parsed.category
-        : entry.category;
+    final category = entry.sections.firstOrNull?.path ?? entry.category;
     final color = _journalCategoryColor(category);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1136,17 +1154,9 @@ class _JournalEntryCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 9, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(category,
-                          style: TextStyle(
-                              color: color, fontWeight: FontWeight.w700)),
-                    ),
+                    Text(
+                        '${entry.sections.length} section${entry.sections.length == 1 ? '' : 's'}',
+                        style: Theme.of(context).textTheme.labelMedium),
                     const Spacer(),
                     Icon(
                       entry.device.toLowerCase().contains('android')
@@ -1156,9 +1166,45 @@ class _JournalEntryCard extends StatelessWidget {
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ]),
-                  const SizedBox(height: 12),
-                  Text(parsed.text.isEmpty ? entry.body : parsed.text,
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 8),
+                  ...entry.sections.map((section) {
+                    final sectionColor = _journalCategoryColor(section.path);
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                              color:
+                                  Theme.of(context).colorScheme.outlineVariant),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(section.path,
+                              style: TextStyle(
+                                  color: sectionColor,
+                                  fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 6),
+                          Text(
+                              section.body.isEmpty
+                                  ? 'Empty journal section'
+                                  : section.body,
+                              style: Theme.of(context).textTheme.bodyLarge),
+                          if (section.metadata.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              section.metadata.entries
+                                  .map((item) => '${item.key}: ${item.value}')
+                                  .join(' · '),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
                   if (entry.responseDelaySeconds != null) ...[
                     const SizedBox(height: 10),
                     Text(_responseDelayLabel(entry.responseDelaySeconds!),
@@ -1389,7 +1435,8 @@ class _CategoryDistribution extends StatelessWidget {
                       shape: BoxShape.circle)),
               const SizedBox(width: 8),
               Expanded(child: Text(category.key)),
-              Text('${total == 0 ? 0 : (category.value * 100 / total).round()}%'),
+              Text(
+                  '${total == 0 ? 0 : (category.value * 100 / total).round()}%'),
             ]),
             const SizedBox(height: 7),
             LinearProgressIndicator(
@@ -1413,7 +1460,8 @@ class _HourlyActivity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = List<int>.filled(24, 0);
-    for (final entry in report.timeline.where((item) => item.kind == 'CHECK_IN')) {
+    for (final entry
+        in report.timeline.where((item) => item.kind == 'CHECK_IN')) {
       final local = tz.TZDateTime.from(
           entry.occurredAt.toUtc(), tz.getLocation(report.timezoneId));
       values[local.hour] += 1;
@@ -1459,7 +1507,13 @@ class _HourlyActivity extends StatelessWidget {
           const SizedBox(height: 8),
           const Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [Text('00'), Text('06'), Text('12'), Text('18'), Text('23')]),
+              children: [
+                Text('00'),
+                Text('06'),
+                Text('12'),
+                Text('18'),
+                Text('23')
+              ]),
         ]),
       ),
     );
@@ -1474,7 +1528,8 @@ class _WordCloud extends StatelessWidget {
   Widget build(BuildContext context) => Card(
         child: Padding(
           padding: const EdgeInsets.all(18),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Words in focus',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 14),
@@ -1511,7 +1566,8 @@ class _DailyInsights extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Daily insights', style: Theme.of(context).textTheme.titleMedium),
+          Text('Daily insights',
+              style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
           _InsightRow(Icons.bolt_outlined, 'Primary focus', topCategory),
           _InsightRow(Icons.timer_outlined, 'Longest response streak',
@@ -1721,7 +1777,8 @@ class _HeatmapState extends State<_Heatmap> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineSmall),
-                              Text('A complete view of this day · ${heatmap.timezoneId}'),
+                              Text(
+                                  'A complete view of this day · ${heatmap.timezoneId}'),
                               const SizedBox(height: 12),
                               Wrap(spacing: 8, runSpacing: 8, children: [
                                 Chip(
@@ -1791,10 +1848,8 @@ Color _heatmapColor(BuildContext context, int intensity) {
   if (intensity == 0) {
     return Theme.of(context).colorScheme.surfaceContainerHighest;
   }
-  return Color.lerp(
-      Theme.of(context).colorScheme.primaryContainer,
-      Theme.of(context).colorScheme.primary,
-      intensity / 4)!;
+  return Color.lerp(Theme.of(context).colorScheme.primaryContainer,
+      Theme.of(context).colorScheme.primary, intensity / 4)!;
 }
 
 class _DayCell extends StatelessWidget {

@@ -1,23 +1,57 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { parseJournalEntry } from '@focuslog/shared-utils';
+import { normalizeJournalCategory, parseJournalLog } from '@focuslog/shared-utils';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 
 import { ApiError } from '../lib/errors.js';
 
 const id = z.string().length(26);
+const logSection = z
+  .object({
+    id,
+    path: z.string().max(500).optional(),
+    categoryPath: z.array(z.string().trim().min(1).max(80)).max(16),
+    body: z.string(),
+    metadata: z.record(z.string(), z.string().max(2000)).default({}),
+    position: z.number().int().min(0)
+  })
+  .refine(
+    (section) =>
+      section.path == null ||
+      (section.categoryPath.length
+        ? section.path ===
+          section.categoryPath.map(normalizeJournalCategory).filter(Boolean).join('/')
+        : section.path.toLowerCase() === 'uncategorized'),
+    { message: 'Section path must match its normalized category path.' }
+  );
+const logSections = z
+  .array(logSection)
+  .min(1)
+  .max(100)
+  .refine(
+    (sections) => new Set(sections.map(({ id: sectionId }) => sectionId)).size === sections.length,
+    {
+      message: 'Section identifiers must be unique.'
+    }
+  )
+  .refine(
+    (sections) => new Set(sections.map(({ position }) => position)).size === sections.length,
+    { message: 'Section positions must be unique.' }
+  );
 const checkInCreatePayload = z.object({
   revisionId: id,
   body: z.string().trim().min(1),
   submittedAt: z.coerce.date(),
   timezoneId: z.string().min(1).max(64),
   reminderCompletion: z.boolean().optional().default(false),
-  reminderOccurrenceId: id.optional()
+  reminderOccurrenceId: id.optional(),
+  sections: logSections.optional()
 });
 const checkInRevisionPayload = z.object({
   revisionId: id,
   body: z.string().trim().min(1),
-  createdAt: z.coerce.date()
+  createdAt: z.coerce.date(),
+  sections: logSections.optional()
 });
 const checkInDeletePayload = z.object({
   deletedAt: z.coerce.date()
@@ -70,7 +104,8 @@ const reminderCompletePayload = z.object({
   checkInId: id,
   revisionId: id,
   body: z.string().trim().min(1),
-  completedAt: z.coerce.date()
+  completedAt: z.coerce.date(),
+  sections: logSections.optional()
 });
 const terminalReminderStates = new Set([
   'COMPLETED',
@@ -110,27 +145,89 @@ interface ConflictDetails {
 export class SyncService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  private async inferredCategoryId(
+  private async ensureCategoryPath(
     tx: Prisma.TransactionClient,
     ownerId: string,
-    body: string,
+    segments: readonly string[],
     occurredAt: Date
   ): Promise<string | null> {
-    const parsed = parseJournalEntry(body);
-    if (!parsed.hasCategoryToken) return null;
-    const category = await tx.category.upsert({
-      where: { ownerId_name: { ownerId, name: parsed.category } },
-      update: { deletedAt: null, updatedAt: occurredAt },
-      create: {
+    if (!segments.length) return null;
+    let parentId: string | null = null;
+    const pathParts: string[] = [];
+    for (const rawSegment of segments) {
+      const segment = normalizeJournalCategory(rawSegment);
+      if (!segment) continue;
+      pathParts.push(segment);
+      const path = pathParts.join('/');
+      const category: { id: string } = await tx.category.upsert({
+        where: { ownerId_path: { ownerId, path } },
+        update: { parentId, deletedAt: null, updatedAt: occurredAt },
+        create: {
+          id: ulid(),
+          ownerId,
+          parentId,
+          name: segment,
+          path,
+          depth: pathParts.length,
+          version: ulid(),
+          createdAt: occurredAt,
+          updatedAt: occurredAt
+        }
+      });
+      parentId = category.id;
+    }
+    return parentId;
+  }
+
+  async materializeLogSections(
+    tx: Prisma.TransactionClient,
+    input: {
+      ownerId: string;
+      checkInId: string;
+      revisionId: string;
+      body: string;
+      occurredAt: Date;
+      timezoneId: string;
+      sections?: z.infer<typeof logSections>;
+    }
+  ): Promise<string | null> {
+    const sections: z.infer<typeof logSections> =
+      input.sections ??
+      parseJournalLog(input.body).sections.map((section) => ({
         id: ulid(),
-        ownerId,
-        name: parsed.category,
-        version: ulid(),
-        createdAt: occurredAt,
-        updatedAt: occurredAt
-      }
-    });
-    return category.id;
+        path: section.path,
+        categoryPath: section.categoryPath,
+        body: section.text,
+        metadata: section.metadata,
+        position: section.position
+      }));
+    let legacyCategoryId: string | null = null;
+    for (const section of [...sections].sort((a, b) => a.position - b.position)) {
+      const categoryId = await this.ensureCategoryPath(
+        tx,
+        input.ownerId,
+        section.categoryPath,
+        input.occurredAt
+      );
+      legacyCategoryId ??= categoryId;
+      await tx.logSection.create({
+        data: {
+          id: section.id,
+          ownerId: input.ownerId,
+          checkInId: input.checkInId,
+          revisionId: input.revisionId,
+          categoryId,
+          position: section.position,
+          body: section.body,
+          metadata: section.metadata as Prisma.InputJsonValue,
+          occurredAt: input.occurredAt,
+          timezoneId: input.timezoneId,
+          version: input.revisionId,
+          createdAt: input.occurredAt
+        }
+      });
+    }
+    return legacyCategoryId;
   }
 
   async push(ownerId: string, deviceId: string, operations: readonly SyncInputOperation[]) {
@@ -254,12 +351,6 @@ export class SyncService {
           localPayload: this.checkInSnapshot(current),
           remotePayload: operation.payload as Prisma.InputJsonValue
         };
-      const categoryId = await this.inferredCategoryId(
-        tx,
-        ownerId,
-        payload.body,
-        payload.submittedAt
-      );
       await tx.checkIn.create({
         data: {
           id: operation.entityId,
@@ -268,7 +359,7 @@ export class SyncService {
           submittedAt: payload.submittedAt,
           timezoneId: payload.timezoneId,
           reminderOccurrenceId: payload.reminderOccurrenceId,
-          categoryId,
+          categoryId: null,
           version: payload.revisionId
         }
       });
@@ -282,6 +373,20 @@ export class SyncService {
           createdAt: payload.submittedAt
         }
       });
+      const categoryId = await this.materializeLogSections(tx, {
+        ownerId,
+        checkInId: operation.entityId,
+        revisionId: payload.revisionId,
+        body: payload.body,
+        occurredAt: payload.submittedAt,
+        timezoneId: payload.timezoneId,
+        sections: payload.sections
+      });
+      if (categoryId)
+        await tx.checkIn.update({
+          where: { id: operation.entityId },
+          data: { categoryId }
+        });
       return undefined;
     }
 
@@ -302,12 +407,6 @@ export class SyncService {
 
     if (operation.kind === 'check_in.revise') {
       const payload = checkInRevisionPayload.parse(operation.payload);
-      const categoryId = await this.inferredCategoryId(
-        tx,
-        ownerId,
-        payload.body,
-        payload.createdAt
-      );
       await tx.checkInRevision.create({
         data: {
           id: payload.revisionId,
@@ -318,6 +417,15 @@ export class SyncService {
           operationId: operation.operationId,
           createdAt: payload.createdAt
         }
+      });
+      const categoryId = await this.materializeLogSections(tx, {
+        ownerId,
+        checkInId: operation.entityId,
+        revisionId: payload.revisionId,
+        body: payload.body,
+        occurredAt: current.submittedAt,
+        timezoneId: current.timezoneId,
+        sections: payload.sections
       });
       await tx.checkIn.update({
         where: { id: operation.entityId },
@@ -487,19 +595,13 @@ export class SyncService {
           operationId: operation.operationId
         }
       });
-      const categoryId = await this.inferredCategoryId(
-        tx,
-        ownerId,
-        payload.body,
-        payload.completedAt
-      );
       await tx.checkIn.create({
         data: {
           id: payload.checkInId,
           ownerId,
           reminderOccurrenceId: occurrence.id,
           focusSessionId: occurrence.focusSessionId,
-          categoryId,
+          categoryId: null,
           currentRevisionId: payload.revisionId,
           submittedAt: payload.completedAt,
           timezoneId: occurrence.timezoneId,
@@ -516,6 +618,20 @@ export class SyncService {
           createdAt: payload.completedAt
         }
       });
+      const categoryId = await this.materializeLogSections(tx, {
+        ownerId,
+        checkInId: payload.checkInId,
+        revisionId: payload.revisionId,
+        body: payload.body,
+        occurredAt: payload.completedAt,
+        timezoneId: occurrence.timezoneId,
+        sections: payload.sections
+      });
+      if (categoryId)
+        await tx.checkIn.update({
+          where: { id: payload.checkInId },
+          data: { categoryId }
+        });
       return undefined;
     }
 

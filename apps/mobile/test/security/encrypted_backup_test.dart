@@ -28,6 +28,46 @@ Future<AppDatabase> seededDatabase({
       now,
     ],
   );
+  await database.customStatement(
+    'INSERT INTO check_in_revisions (id, check_in_id, body, operation_id, created_at) VALUES (?, ?, ?, ?, ?)',
+    [
+      '01J00000000000000000000005',
+      '01J00000000000000000000003',
+      '<study><leetcode> Solved problem 904.',
+      '01J00000000000000000000008',
+      now,
+    ],
+  );
+  await database.customStatement(
+    'INSERT INTO categories (id, owner_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [
+      '01J00000000000000000000006',
+      ownerId,
+      'leetcode',
+      'study/leetcode',
+      1,
+      '01J00000000000000000000004',
+      now,
+      now,
+    ],
+  );
+  await database.customStatement(
+    'INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [
+      '01J00000000000000000000007',
+      ownerId,
+      '01J00000000000000000000003',
+      '01J00000000000000000000005',
+      '01J00000000000000000000006',
+      0,
+      'Solved problem 904.',
+      '{"difficulty":"Hard"}',
+      now,
+      'Europe/Warsaw',
+      '01J00000000000000000000004',
+      now,
+    ],
+  );
   return database;
 }
 
@@ -56,6 +96,14 @@ void main() {
         .customSelect('SELECT count(*) AS count FROM check_ins')
         .getSingle();
     expect(count.read<int>('count'), 1);
+    final section = await reinstalled.customSelect('''
+      SELECT categories.path, log_sections.body, log_sections.metadata_json
+      FROM log_sections
+      JOIN categories ON categories.id = log_sections.category_id
+    ''').getSingle();
+    expect(section.read<String>('path'), 'study/leetcode');
+    expect(section.read<String>('body'), 'Solved problem 904.');
+    expect(section.read<String>('metadata_json'), '{"difficulty":"Hard"}');
     await reinstalled.close();
   });
 

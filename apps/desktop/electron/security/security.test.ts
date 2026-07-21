@@ -114,6 +114,49 @@ describe('encrypted backup restore', () => {
         '2026-07-20T12:30:00.000Z',
         '2026-07-20T12:30:00.000Z'
       );
+    source
+      .prepare(
+        'INSERT INTO check_in_revisions (id, check_in_id, body, operation_id, created_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(
+        '01J00000000000000000000005',
+        '01J00000000000000000000003',
+        '<study><leetcode> Solved problem 904.',
+        '01J00000000000000000000008',
+        '2026-07-20T12:30:00.000Z'
+      );
+    source
+      .prepare(
+        'INSERT INTO categories (id, owner_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(
+        '01J00000000000000000000006',
+        '01J00000000000000000000000',
+        'leetcode',
+        'study/leetcode',
+        1,
+        '01J00000000000000000000004',
+        '2026-07-20T12:30:00.000Z',
+        '2026-07-20T12:30:00.000Z'
+      );
+    source
+      .prepare(
+        'INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(
+        '01J00000000000000000000007',
+        '01J00000000000000000000000',
+        '01J00000000000000000000003',
+        '01J00000000000000000000005',
+        '01J00000000000000000000006',
+        0,
+        'Solved problem 904.',
+        '{"difficulty":"Hard"}',
+        '2026-07-20T12:30:00.000Z',
+        'Europe/Warsaw',
+        '01J00000000000000000000004',
+        '2026-07-20T12:30:00.000Z'
+      );
     const recoveryKey = randomBytes(32);
     const keys = generateKeyPairSync('ed25519');
     const recoveryIdentity = {
@@ -129,6 +172,17 @@ describe('encrypted backup restore', () => {
     const result = restoreEncryptedArchive(reinstalled, archive, formatRecoveryKey(recoveryKey));
     expect(reinstalled.prepare('SELECT count(*) AS count FROM check_ins').get()).toMatchObject({
       count: 1
+    });
+    expect(
+      reinstalled
+        .prepare(
+          'SELECT categories.path, log_sections.body, log_sections.metadata_json FROM log_sections JOIN categories ON categories.id = log_sections.category_id'
+        )
+        .get()
+    ).toMatchObject({
+      path: 'study/leetcode',
+      body: 'Solved problem 904.',
+      metadata_json: '{"difficulty":"Hard"}'
     });
     expect(result.recoveryIdentity?.deviceId).toBe(recoveryIdentity.deviceId);
     source.close();

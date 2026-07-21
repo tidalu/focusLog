@@ -28,9 +28,16 @@ async function main(): Promise<void> {
     }
   });
   await prisma.category.upsert({
-    where: { ownerId_name: { ownerId: ids.owner, name: 'Development' } },
+    where: { ownerId_path: { ownerId: ids.owner, path: 'development' } },
     update: {},
-    create: { id: ids.category, ownerId: ids.owner, name: 'Development', version: ids.category }
+    create: {
+      id: ids.category,
+      ownerId: ids.owner,
+      name: 'development',
+      path: 'development',
+      depth: 1,
+      version: ids.category
+    }
   });
   await prisma.tag.upsert({
     where: { ownerId_name: { ownerId: ids.owner, name: 'seed' } },

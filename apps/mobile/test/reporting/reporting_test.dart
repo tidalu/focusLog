@@ -66,6 +66,10 @@ void main() {
       "VALUES (?, ?, 'A detailed completed focus check-in', 'device', ?, ?)",
       [revision, id, '$id-operation', submittedAt],
     );
+    await database.customStatement(
+      "INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, 'owner', ?, ?, 0, 'A detailed completed focus check-in', '{}', ?, 'Europe/Warsaw', ?, ?)",
+      ['$revision-section', id, revision, submittedAt, revision, submittedAt],
+    );
   }
 
   test('daily report follows DST boundaries and clips tracked time', () async {

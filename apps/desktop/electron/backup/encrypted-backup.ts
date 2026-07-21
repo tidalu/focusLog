@@ -8,7 +8,7 @@ import type { DeviceIdentity } from '../identity/device-identity.js';
 
 const magic = 'FOCUSLOG-ENCRYPTED-BACKUP';
 const formatVersion = 1;
-const currentSchemaVersion = 3;
+const currentSchemaVersion = 4;
 const hkdfInfo = Buffer.from('FocusLog portable backup v1');
 
 export const portableTables = [
@@ -22,6 +22,7 @@ export const portableTables = [
   'categories',
   'check_ins',
   'check_in_revisions',
+  'log_sections',
   'tags',
   'check_in_tags',
   'sync_operations',
@@ -213,6 +214,7 @@ function validatePayload(payload: BackupPayload): void {
     throw new Error('Backup payload metadata is invalid or incompatible.');
   for (const table of portableTables) {
     const snapshot = payload.tables?.[table];
+    if (table === 'log_sections' && payload.schemaVersion < 4 && !snapshot) continue;
     if (
       !snapshot ||
       !Array.isArray(snapshot.columns) ||
@@ -245,7 +247,9 @@ function importPayload(database: DesktopDatabase, payload: BackupPayload): void 
       for (const table of [...portableTables].reverse())
         database.prepare(`DELETE FROM "${table}"`).run();
       for (const table of portableTables) {
-        const snapshot = payload.tables[table]!;
+        const snapshot = payload.tables[table];
+        if (!snapshot && table === 'log_sections' && payload.schemaVersion < 4) continue;
+        if (!snapshot) throw new Error(`Backup table ${table} is missing.`);
         if (snapshot.rows.length === 0) continue;
         const columns = snapshot.columns.map((column) => `"${column}"`).join(', ');
         const placeholders = snapshot.columns.map(() => '?').join(', ');
@@ -253,6 +257,13 @@ function importPayload(database: DesktopDatabase, payload: BackupPayload): void 
           `INSERT INTO "${table}" (${columns}) VALUES (${placeholders})`
         );
         for (const row of snapshot.rows) insert.run(...row);
+      }
+      if (payload.schemaVersion < 4) {
+        database
+          .prepare(
+            "INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) SELECT check_in_revisions.id, check_ins.owner_id, check_ins.id, check_in_revisions.id, check_ins.category_id, 0, check_in_revisions.body, '{}', check_ins.submitted_at, check_ins.timezone_id, check_in_revisions.id, check_in_revisions.created_at FROM check_in_revisions JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id"
+          )
+          .run();
       }
     })();
   } finally {

@@ -3893,11 +3893,29 @@ class $CategoriesTable extends Categories
   late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
       'owner_id', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _parentIdMeta =
+      const VerificationMeta('parentId');
+  @override
+  late final GeneratedColumn<String> parentId = GeneratedColumn<String>(
+      'parent_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
       'name', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+      'path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _depthMeta = const VerificationMeta('depth');
+  @override
+  late final GeneratedColumn<int> depth = GeneratedColumn<int>(
+      'depth', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(1));
   static const VerificationMeta _colorMeta = const VerificationMeta('color');
   @override
   late final GeneratedColumn<String> color = GeneratedColumn<String>(
@@ -3928,8 +3946,19 @@ class $CategoriesTable extends Categories
       'updated_at', aliasedName, false,
       type: DriftSqlType.dateTime, requiredDuringInsert: true);
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, ownerId, name, color, version, deletedAt, createdAt, updatedAt];
+  List<GeneratedColumn> get $columns => [
+        id,
+        ownerId,
+        parentId,
+        name,
+        path,
+        depth,
+        color,
+        version,
+        deletedAt,
+        createdAt,
+        updatedAt
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3951,11 +3980,23 @@ class $CategoriesTable extends Categories
     } else if (isInserting) {
       context.missing(_ownerIdMeta);
     }
+    if (data.containsKey('parent_id')) {
+      context.handle(_parentIdMeta,
+          parentId.isAcceptableOrUnknown(data['parent_id']!, _parentIdMeta));
+    }
     if (data.containsKey('name')) {
       context.handle(
           _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('path')) {
+      context.handle(
+          _pathMeta, path.isAcceptableOrUnknown(data['path']!, _pathMeta));
+    }
+    if (data.containsKey('depth')) {
+      context.handle(
+          _depthMeta, depth.isAcceptableOrUnknown(data['depth']!, _depthMeta));
     }
     if (data.containsKey('color')) {
       context.handle(
@@ -3996,8 +4037,14 @@ class $CategoriesTable extends Categories
           .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
       ownerId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}owner_id'])!,
+      parentId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}parent_id']),
       name: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      path: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}path']),
+      depth: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}depth'])!,
       color: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}color']),
       version: attachedDatabase.typeMapping
@@ -4020,7 +4067,10 @@ class $CategoriesTable extends Categories
 class Category extends DataClass implements Insertable<Category> {
   final String id;
   final String ownerId;
+  final String? parentId;
   final String name;
+  final String? path;
+  final int depth;
   final String? color;
   final String version;
   final DateTime? deletedAt;
@@ -4029,7 +4079,10 @@ class Category extends DataClass implements Insertable<Category> {
   const Category(
       {required this.id,
       required this.ownerId,
+      this.parentId,
       required this.name,
+      this.path,
+      required this.depth,
       this.color,
       required this.version,
       this.deletedAt,
@@ -4040,7 +4093,14 @@ class Category extends DataClass implements Insertable<Category> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['owner_id'] = Variable<String>(ownerId);
+    if (!nullToAbsent || parentId != null) {
+      map['parent_id'] = Variable<String>(parentId);
+    }
     map['name'] = Variable<String>(name);
+    if (!nullToAbsent || path != null) {
+      map['path'] = Variable<String>(path);
+    }
+    map['depth'] = Variable<int>(depth);
     if (!nullToAbsent || color != null) {
       map['color'] = Variable<String>(color);
     }
@@ -4057,7 +4117,12 @@ class Category extends DataClass implements Insertable<Category> {
     return CategoriesCompanion(
       id: Value(id),
       ownerId: Value(ownerId),
+      parentId: parentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(parentId),
       name: Value(name),
+      path: path == null && nullToAbsent ? const Value.absent() : Value(path),
+      depth: Value(depth),
       color:
           color == null && nullToAbsent ? const Value.absent() : Value(color),
       version: Value(version),
@@ -4075,7 +4140,10 @@ class Category extends DataClass implements Insertable<Category> {
     return Category(
       id: serializer.fromJson<String>(json['id']),
       ownerId: serializer.fromJson<String>(json['ownerId']),
+      parentId: serializer.fromJson<String?>(json['parentId']),
       name: serializer.fromJson<String>(json['name']),
+      path: serializer.fromJson<String?>(json['path']),
+      depth: serializer.fromJson<int>(json['depth']),
       color: serializer.fromJson<String?>(json['color']),
       version: serializer.fromJson<String>(json['version']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
@@ -4089,7 +4157,10 @@ class Category extends DataClass implements Insertable<Category> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'ownerId': serializer.toJson<String>(ownerId),
+      'parentId': serializer.toJson<String?>(parentId),
       'name': serializer.toJson<String>(name),
+      'path': serializer.toJson<String?>(path),
+      'depth': serializer.toJson<int>(depth),
       'color': serializer.toJson<String?>(color),
       'version': serializer.toJson<String>(version),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
@@ -4101,7 +4172,10 @@ class Category extends DataClass implements Insertable<Category> {
   Category copyWith(
           {String? id,
           String? ownerId,
+          Value<String?> parentId = const Value.absent(),
           String? name,
+          Value<String?> path = const Value.absent(),
+          int? depth,
           Value<String?> color = const Value.absent(),
           String? version,
           Value<DateTime?> deletedAt = const Value.absent(),
@@ -4110,7 +4184,10 @@ class Category extends DataClass implements Insertable<Category> {
       Category(
         id: id ?? this.id,
         ownerId: ownerId ?? this.ownerId,
+        parentId: parentId.present ? parentId.value : this.parentId,
         name: name ?? this.name,
+        path: path.present ? path.value : this.path,
+        depth: depth ?? this.depth,
         color: color.present ? color.value : this.color,
         version: version ?? this.version,
         deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
@@ -4121,7 +4198,10 @@ class Category extends DataClass implements Insertable<Category> {
     return Category(
       id: data.id.present ? data.id.value : this.id,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      parentId: data.parentId.present ? data.parentId.value : this.parentId,
       name: data.name.present ? data.name.value : this.name,
+      path: data.path.present ? data.path.value : this.path,
+      depth: data.depth.present ? data.depth.value : this.depth,
       color: data.color.present ? data.color.value : this.color,
       version: data.version.present ? data.version.value : this.version,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
@@ -4135,7 +4215,10 @@ class Category extends DataClass implements Insertable<Category> {
     return (StringBuffer('Category(')
           ..write('id: $id, ')
           ..write('ownerId: $ownerId, ')
+          ..write('parentId: $parentId, ')
           ..write('name: $name, ')
+          ..write('path: $path, ')
+          ..write('depth: $depth, ')
           ..write('color: $color, ')
           ..write('version: $version, ')
           ..write('deletedAt: $deletedAt, ')
@@ -4146,15 +4229,18 @@ class Category extends DataClass implements Insertable<Category> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      id, ownerId, name, color, version, deletedAt, createdAt, updatedAt);
+  int get hashCode => Object.hash(id, ownerId, parentId, name, path, depth,
+      color, version, deletedAt, createdAt, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Category &&
           other.id == this.id &&
           other.ownerId == this.ownerId &&
+          other.parentId == this.parentId &&
           other.name == this.name &&
+          other.path == this.path &&
+          other.depth == this.depth &&
           other.color == this.color &&
           other.version == this.version &&
           other.deletedAt == this.deletedAt &&
@@ -4165,7 +4251,10 @@ class Category extends DataClass implements Insertable<Category> {
 class CategoriesCompanion extends UpdateCompanion<Category> {
   final Value<String> id;
   final Value<String> ownerId;
+  final Value<String?> parentId;
   final Value<String> name;
+  final Value<String?> path;
+  final Value<int> depth;
   final Value<String?> color;
   final Value<String> version;
   final Value<DateTime?> deletedAt;
@@ -4175,7 +4264,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   const CategoriesCompanion({
     this.id = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.parentId = const Value.absent(),
     this.name = const Value.absent(),
+    this.path = const Value.absent(),
+    this.depth = const Value.absent(),
     this.color = const Value.absent(),
     this.version = const Value.absent(),
     this.deletedAt = const Value.absent(),
@@ -4186,7 +4278,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   CategoriesCompanion.insert({
     required String id,
     required String ownerId,
+    this.parentId = const Value.absent(),
     required String name,
+    this.path = const Value.absent(),
+    this.depth = const Value.absent(),
     this.color = const Value.absent(),
     required String version,
     this.deletedAt = const Value.absent(),
@@ -4202,7 +4297,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   static Insertable<Category> custom({
     Expression<String>? id,
     Expression<String>? ownerId,
+    Expression<String>? parentId,
     Expression<String>? name,
+    Expression<String>? path,
+    Expression<int>? depth,
     Expression<String>? color,
     Expression<String>? version,
     Expression<DateTime>? deletedAt,
@@ -4213,7 +4311,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (ownerId != null) 'owner_id': ownerId,
+      if (parentId != null) 'parent_id': parentId,
       if (name != null) 'name': name,
+      if (path != null) 'path': path,
+      if (depth != null) 'depth': depth,
       if (color != null) 'color': color,
       if (version != null) 'version': version,
       if (deletedAt != null) 'deleted_at': deletedAt,
@@ -4226,7 +4327,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
   CategoriesCompanion copyWith(
       {Value<String>? id,
       Value<String>? ownerId,
+      Value<String?>? parentId,
       Value<String>? name,
+      Value<String?>? path,
+      Value<int>? depth,
       Value<String?>? color,
       Value<String>? version,
       Value<DateTime?>? deletedAt,
@@ -4236,7 +4340,10 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     return CategoriesCompanion(
       id: id ?? this.id,
       ownerId: ownerId ?? this.ownerId,
+      parentId: parentId ?? this.parentId,
       name: name ?? this.name,
+      path: path ?? this.path,
+      depth: depth ?? this.depth,
       color: color ?? this.color,
       version: version ?? this.version,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -4255,8 +4362,17 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
     }
+    if (parentId.present) {
+      map['parent_id'] = Variable<String>(parentId.value);
+    }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (depth.present) {
+      map['depth'] = Variable<int>(depth.value);
     }
     if (color.present) {
       map['color'] = Variable<String>(color.value);
@@ -4284,12 +4400,624 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     return (StringBuffer('CategoriesCompanion(')
           ..write('id: $id, ')
           ..write('ownerId: $ownerId, ')
+          ..write('parentId: $parentId, ')
           ..write('name: $name, ')
+          ..write('path: $path, ')
+          ..write('depth: $depth, ')
           ..write('color: $color, ')
           ..write('version: $version, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $LogSectionsTable extends LogSections
+    with TableInfo<$LogSectionsTable, LogSection> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LogSectionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _ownerIdMeta =
+      const VerificationMeta('ownerId');
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+      'owner_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _checkInIdMeta =
+      const VerificationMeta('checkInId');
+  @override
+  late final GeneratedColumn<String> checkInId = GeneratedColumn<String>(
+      'check_in_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _revisionIdMeta =
+      const VerificationMeta('revisionId');
+  @override
+  late final GeneratedColumn<String> revisionId = GeneratedColumn<String>(
+      'revision_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _categoryIdMeta =
+      const VerificationMeta('categoryId');
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+      'category_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _positionMeta =
+      const VerificationMeta('position');
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+      'position', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _bodyMeta = const VerificationMeta('body');
+  @override
+  late final GeneratedColumn<String> body = GeneratedColumn<String>(
+      'body', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _metadataJsonMeta =
+      const VerificationMeta('metadataJson');
+  @override
+  late final GeneratedColumn<String> metadataJson = GeneratedColumn<String>(
+      'metadata_json', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('{}'));
+  static const VerificationMeta _occurredAtMeta =
+      const VerificationMeta('occurredAt');
+  @override
+  late final GeneratedColumn<DateTime> occurredAt = GeneratedColumn<DateTime>(
+      'occurred_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _timezoneIdMeta =
+      const VerificationMeta('timezoneId');
+  @override
+  late final GeneratedColumn<String> timezoneId = GeneratedColumn<String>(
+      'timezone_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _versionMeta =
+      const VerificationMeta('version');
+  @override
+  late final GeneratedColumn<String> version = GeneratedColumn<String>(
+      'version', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        ownerId,
+        checkInId,
+        revisionId,
+        categoryId,
+        position,
+        body,
+        metadataJson,
+        occurredAt,
+        timezoneId,
+        version,
+        createdAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'log_sections';
+  @override
+  VerificationContext validateIntegrity(Insertable<LogSection> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(_ownerIdMeta,
+          ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta));
+    } else if (isInserting) {
+      context.missing(_ownerIdMeta);
+    }
+    if (data.containsKey('check_in_id')) {
+      context.handle(
+          _checkInIdMeta,
+          checkInId.isAcceptableOrUnknown(
+              data['check_in_id']!, _checkInIdMeta));
+    } else if (isInserting) {
+      context.missing(_checkInIdMeta);
+    }
+    if (data.containsKey('revision_id')) {
+      context.handle(
+          _revisionIdMeta,
+          revisionId.isAcceptableOrUnknown(
+              data['revision_id']!, _revisionIdMeta));
+    } else if (isInserting) {
+      context.missing(_revisionIdMeta);
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+          _categoryIdMeta,
+          categoryId.isAcceptableOrUnknown(
+              data['category_id']!, _categoryIdMeta));
+    }
+    if (data.containsKey('position')) {
+      context.handle(_positionMeta,
+          position.isAcceptableOrUnknown(data['position']!, _positionMeta));
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('body')) {
+      context.handle(
+          _bodyMeta, body.isAcceptableOrUnknown(data['body']!, _bodyMeta));
+    } else if (isInserting) {
+      context.missing(_bodyMeta);
+    }
+    if (data.containsKey('metadata_json')) {
+      context.handle(
+          _metadataJsonMeta,
+          metadataJson.isAcceptableOrUnknown(
+              data['metadata_json']!, _metadataJsonMeta));
+    }
+    if (data.containsKey('occurred_at')) {
+      context.handle(
+          _occurredAtMeta,
+          occurredAt.isAcceptableOrUnknown(
+              data['occurred_at']!, _occurredAtMeta));
+    } else if (isInserting) {
+      context.missing(_occurredAtMeta);
+    }
+    if (data.containsKey('timezone_id')) {
+      context.handle(
+          _timezoneIdMeta,
+          timezoneId.isAcceptableOrUnknown(
+              data['timezone_id']!, _timezoneIdMeta));
+    } else if (isInserting) {
+      context.missing(_timezoneIdMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(_versionMeta,
+          version.isAcceptableOrUnknown(data['version']!, _versionMeta));
+    } else if (isInserting) {
+      context.missing(_versionMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LogSection map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LogSection(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      ownerId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}owner_id'])!,
+      checkInId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}check_in_id'])!,
+      revisionId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}revision_id'])!,
+      categoryId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}category_id']),
+      position: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}position'])!,
+      body: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}body'])!,
+      metadataJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}metadata_json'])!,
+      occurredAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}occurred_at'])!,
+      timezoneId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}timezone_id'])!,
+      version: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}version'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $LogSectionsTable createAlias(String alias) {
+    return $LogSectionsTable(attachedDatabase, alias);
+  }
+}
+
+class LogSection extends DataClass implements Insertable<LogSection> {
+  final String id;
+  final String ownerId;
+  final String checkInId;
+  final String revisionId;
+  final String? categoryId;
+  final int position;
+  final String body;
+  final String metadataJson;
+  final DateTime occurredAt;
+  final String timezoneId;
+  final String version;
+  final DateTime createdAt;
+  const LogSection(
+      {required this.id,
+      required this.ownerId,
+      required this.checkInId,
+      required this.revisionId,
+      this.categoryId,
+      required this.position,
+      required this.body,
+      required this.metadataJson,
+      required this.occurredAt,
+      required this.timezoneId,
+      required this.version,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['owner_id'] = Variable<String>(ownerId);
+    map['check_in_id'] = Variable<String>(checkInId);
+    map['revision_id'] = Variable<String>(revisionId);
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
+    map['position'] = Variable<int>(position);
+    map['body'] = Variable<String>(body);
+    map['metadata_json'] = Variable<String>(metadataJson);
+    map['occurred_at'] = Variable<DateTime>(occurredAt);
+    map['timezone_id'] = Variable<String>(timezoneId);
+    map['version'] = Variable<String>(version);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  LogSectionsCompanion toCompanion(bool nullToAbsent) {
+    return LogSectionsCompanion(
+      id: Value(id),
+      ownerId: Value(ownerId),
+      checkInId: Value(checkInId),
+      revisionId: Value(revisionId),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
+      position: Value(position),
+      body: Value(body),
+      metadataJson: Value(metadataJson),
+      occurredAt: Value(occurredAt),
+      timezoneId: Value(timezoneId),
+      version: Value(version),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory LogSection.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LogSection(
+      id: serializer.fromJson<String>(json['id']),
+      ownerId: serializer.fromJson<String>(json['ownerId']),
+      checkInId: serializer.fromJson<String>(json['checkInId']),
+      revisionId: serializer.fromJson<String>(json['revisionId']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
+      position: serializer.fromJson<int>(json['position']),
+      body: serializer.fromJson<String>(json['body']),
+      metadataJson: serializer.fromJson<String>(json['metadataJson']),
+      occurredAt: serializer.fromJson<DateTime>(json['occurredAt']),
+      timezoneId: serializer.fromJson<String>(json['timezoneId']),
+      version: serializer.fromJson<String>(json['version']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'ownerId': serializer.toJson<String>(ownerId),
+      'checkInId': serializer.toJson<String>(checkInId),
+      'revisionId': serializer.toJson<String>(revisionId),
+      'categoryId': serializer.toJson<String?>(categoryId),
+      'position': serializer.toJson<int>(position),
+      'body': serializer.toJson<String>(body),
+      'metadataJson': serializer.toJson<String>(metadataJson),
+      'occurredAt': serializer.toJson<DateTime>(occurredAt),
+      'timezoneId': serializer.toJson<String>(timezoneId),
+      'version': serializer.toJson<String>(version),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  LogSection copyWith(
+          {String? id,
+          String? ownerId,
+          String? checkInId,
+          String? revisionId,
+          Value<String?> categoryId = const Value.absent(),
+          int? position,
+          String? body,
+          String? metadataJson,
+          DateTime? occurredAt,
+          String? timezoneId,
+          String? version,
+          DateTime? createdAt}) =>
+      LogSection(
+        id: id ?? this.id,
+        ownerId: ownerId ?? this.ownerId,
+        checkInId: checkInId ?? this.checkInId,
+        revisionId: revisionId ?? this.revisionId,
+        categoryId: categoryId.present ? categoryId.value : this.categoryId,
+        position: position ?? this.position,
+        body: body ?? this.body,
+        metadataJson: metadataJson ?? this.metadataJson,
+        occurredAt: occurredAt ?? this.occurredAt,
+        timezoneId: timezoneId ?? this.timezoneId,
+        version: version ?? this.version,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  LogSection copyWithCompanion(LogSectionsCompanion data) {
+    return LogSection(
+      id: data.id.present ? data.id.value : this.id,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      checkInId: data.checkInId.present ? data.checkInId.value : this.checkInId,
+      revisionId:
+          data.revisionId.present ? data.revisionId.value : this.revisionId,
+      categoryId:
+          data.categoryId.present ? data.categoryId.value : this.categoryId,
+      position: data.position.present ? data.position.value : this.position,
+      body: data.body.present ? data.body.value : this.body,
+      metadataJson: data.metadataJson.present
+          ? data.metadataJson.value
+          : this.metadataJson,
+      occurredAt:
+          data.occurredAt.present ? data.occurredAt.value : this.occurredAt,
+      timezoneId:
+          data.timezoneId.present ? data.timezoneId.value : this.timezoneId,
+      version: data.version.present ? data.version.value : this.version,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LogSection(')
+          ..write('id: $id, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('checkInId: $checkInId, ')
+          ..write('revisionId: $revisionId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('position: $position, ')
+          ..write('body: $body, ')
+          ..write('metadataJson: $metadataJson, ')
+          ..write('occurredAt: $occurredAt, ')
+          ..write('timezoneId: $timezoneId, ')
+          ..write('version: $version, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      ownerId,
+      checkInId,
+      revisionId,
+      categoryId,
+      position,
+      body,
+      metadataJson,
+      occurredAt,
+      timezoneId,
+      version,
+      createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LogSection &&
+          other.id == this.id &&
+          other.ownerId == this.ownerId &&
+          other.checkInId == this.checkInId &&
+          other.revisionId == this.revisionId &&
+          other.categoryId == this.categoryId &&
+          other.position == this.position &&
+          other.body == this.body &&
+          other.metadataJson == this.metadataJson &&
+          other.occurredAt == this.occurredAt &&
+          other.timezoneId == this.timezoneId &&
+          other.version == this.version &&
+          other.createdAt == this.createdAt);
+}
+
+class LogSectionsCompanion extends UpdateCompanion<LogSection> {
+  final Value<String> id;
+  final Value<String> ownerId;
+  final Value<String> checkInId;
+  final Value<String> revisionId;
+  final Value<String?> categoryId;
+  final Value<int> position;
+  final Value<String> body;
+  final Value<String> metadataJson;
+  final Value<DateTime> occurredAt;
+  final Value<String> timezoneId;
+  final Value<String> version;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const LogSectionsCompanion({
+    this.id = const Value.absent(),
+    this.ownerId = const Value.absent(),
+    this.checkInId = const Value.absent(),
+    this.revisionId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.position = const Value.absent(),
+    this.body = const Value.absent(),
+    this.metadataJson = const Value.absent(),
+    this.occurredAt = const Value.absent(),
+    this.timezoneId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LogSectionsCompanion.insert({
+    required String id,
+    required String ownerId,
+    required String checkInId,
+    required String revisionId,
+    this.categoryId = const Value.absent(),
+    required int position,
+    required String body,
+    this.metadataJson = const Value.absent(),
+    required DateTime occurredAt,
+    required String timezoneId,
+    required String version,
+    required DateTime createdAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        ownerId = Value(ownerId),
+        checkInId = Value(checkInId),
+        revisionId = Value(revisionId),
+        position = Value(position),
+        body = Value(body),
+        occurredAt = Value(occurredAt),
+        timezoneId = Value(timezoneId),
+        version = Value(version),
+        createdAt = Value(createdAt);
+  static Insertable<LogSection> custom({
+    Expression<String>? id,
+    Expression<String>? ownerId,
+    Expression<String>? checkInId,
+    Expression<String>? revisionId,
+    Expression<String>? categoryId,
+    Expression<int>? position,
+    Expression<String>? body,
+    Expression<String>? metadataJson,
+    Expression<DateTime>? occurredAt,
+    Expression<String>? timezoneId,
+    Expression<String>? version,
+    Expression<DateTime>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (ownerId != null) 'owner_id': ownerId,
+      if (checkInId != null) 'check_in_id': checkInId,
+      if (revisionId != null) 'revision_id': revisionId,
+      if (categoryId != null) 'category_id': categoryId,
+      if (position != null) 'position': position,
+      if (body != null) 'body': body,
+      if (metadataJson != null) 'metadata_json': metadataJson,
+      if (occurredAt != null) 'occurred_at': occurredAt,
+      if (timezoneId != null) 'timezone_id': timezoneId,
+      if (version != null) 'version': version,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LogSectionsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? ownerId,
+      Value<String>? checkInId,
+      Value<String>? revisionId,
+      Value<String?>? categoryId,
+      Value<int>? position,
+      Value<String>? body,
+      Value<String>? metadataJson,
+      Value<DateTime>? occurredAt,
+      Value<String>? timezoneId,
+      Value<String>? version,
+      Value<DateTime>? createdAt,
+      Value<int>? rowid}) {
+    return LogSectionsCompanion(
+      id: id ?? this.id,
+      ownerId: ownerId ?? this.ownerId,
+      checkInId: checkInId ?? this.checkInId,
+      revisionId: revisionId ?? this.revisionId,
+      categoryId: categoryId ?? this.categoryId,
+      position: position ?? this.position,
+      body: body ?? this.body,
+      metadataJson: metadataJson ?? this.metadataJson,
+      occurredAt: occurredAt ?? this.occurredAt,
+      timezoneId: timezoneId ?? this.timezoneId,
+      version: version ?? this.version,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
+    if (checkInId.present) {
+      map['check_in_id'] = Variable<String>(checkInId.value);
+    }
+    if (revisionId.present) {
+      map['revision_id'] = Variable<String>(revisionId.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (body.present) {
+      map['body'] = Variable<String>(body.value);
+    }
+    if (metadataJson.present) {
+      map['metadata_json'] = Variable<String>(metadataJson.value);
+    }
+    if (occurredAt.present) {
+      map['occurred_at'] = Variable<DateTime>(occurredAt.value);
+    }
+    if (timezoneId.present) {
+      map['timezone_id'] = Variable<String>(timezoneId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<String>(version.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LogSectionsCompanion(')
+          ..write('id: $id, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('checkInId: $checkInId, ')
+          ..write('revisionId: $revisionId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('position: $position, ')
+          ..write('body: $body, ')
+          ..write('metadataJson: $metadataJson, ')
+          ..write('occurredAt: $occurredAt, ')
+          ..write('timezoneId: $timezoneId, ')
+          ..write('version: $version, ')
+          ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9825,6 +10553,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ReminderTransitionsTable reminderTransitions =
       $ReminderTransitionsTable(this);
   late final $CategoriesTable categories = $CategoriesTable(this);
+  late final $LogSectionsTable logSections = $LogSectionsTable(this);
   late final $CheckInsTable checkIns = $CheckInsTable(this);
   late final $CheckInRevisionsTable checkInRevisions =
       $CheckInRevisionsTable(this);
@@ -9853,6 +10582,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         reminderOccurrences,
         reminderTransitions,
         categories,
+        logSections,
         checkIns,
         checkInRevisions,
         tags,
@@ -11681,7 +12411,10 @@ typedef $$ReminderTransitionsTableProcessedTableManager = ProcessedTableManager<
 typedef $$CategoriesTableCreateCompanionBuilder = CategoriesCompanion Function({
   required String id,
   required String ownerId,
+  Value<String?> parentId,
   required String name,
+  Value<String?> path,
+  Value<int> depth,
   Value<String?> color,
   required String version,
   Value<DateTime?> deletedAt,
@@ -11692,7 +12425,10 @@ typedef $$CategoriesTableCreateCompanionBuilder = CategoriesCompanion Function({
 typedef $$CategoriesTableUpdateCompanionBuilder = CategoriesCompanion Function({
   Value<String> id,
   Value<String> ownerId,
+  Value<String?> parentId,
   Value<String> name,
+  Value<String?> path,
+  Value<int> depth,
   Value<String?> color,
   Value<String> version,
   Value<DateTime?> deletedAt,
@@ -11716,8 +12452,17 @@ class $$CategoriesTableFilterComposer
   ColumnFilters<String> get ownerId => $composableBuilder(
       column: $table.ownerId, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get parentId => $composableBuilder(
+      column: $table.parentId, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get depth => $composableBuilder(
+      column: $table.depth, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get color => $composableBuilder(
       column: $table.color, builder: (column) => ColumnFilters(column));
@@ -11750,8 +12495,17 @@ class $$CategoriesTableOrderingComposer
   ColumnOrderings<String> get ownerId => $composableBuilder(
       column: $table.ownerId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get parentId => $composableBuilder(
+      column: $table.parentId, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get name => $composableBuilder(
       column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get depth => $composableBuilder(
+      column: $table.depth, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get color => $composableBuilder(
       column: $table.color, builder: (column) => ColumnOrderings(column));
@@ -11784,8 +12538,17 @@ class $$CategoriesTableAnnotationComposer
   GeneratedColumn<String> get ownerId =>
       $composableBuilder(column: $table.ownerId, builder: (column) => column);
 
+  GeneratedColumn<String> get parentId =>
+      $composableBuilder(column: $table.parentId, builder: (column) => column);
+
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<int> get depth =>
+      $composableBuilder(column: $table.depth, builder: (column) => column);
 
   GeneratedColumn<String> get color =>
       $composableBuilder(column: $table.color, builder: (column) => column);
@@ -11828,7 +12591,10 @@ class $$CategoriesTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<String> id = const Value.absent(),
             Value<String> ownerId = const Value.absent(),
+            Value<String?> parentId = const Value.absent(),
             Value<String> name = const Value.absent(),
+            Value<String?> path = const Value.absent(),
+            Value<int> depth = const Value.absent(),
             Value<String?> color = const Value.absent(),
             Value<String> version = const Value.absent(),
             Value<DateTime?> deletedAt = const Value.absent(),
@@ -11839,7 +12605,10 @@ class $$CategoriesTableTableManager extends RootTableManager<
               CategoriesCompanion(
             id: id,
             ownerId: ownerId,
+            parentId: parentId,
             name: name,
+            path: path,
+            depth: depth,
             color: color,
             version: version,
             deletedAt: deletedAt,
@@ -11850,7 +12619,10 @@ class $$CategoriesTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required String id,
             required String ownerId,
+            Value<String?> parentId = const Value.absent(),
             required String name,
+            Value<String?> path = const Value.absent(),
+            Value<int> depth = const Value.absent(),
             Value<String?> color = const Value.absent(),
             required String version,
             Value<DateTime?> deletedAt = const Value.absent(),
@@ -11861,7 +12633,10 @@ class $$CategoriesTableTableManager extends RootTableManager<
               CategoriesCompanion.insert(
             id: id,
             ownerId: ownerId,
+            parentId: parentId,
             name: name,
+            path: path,
+            depth: depth,
             color: color,
             version: version,
             deletedAt: deletedAt,
@@ -11887,6 +12662,279 @@ typedef $$CategoriesTableProcessedTableManager = ProcessedTableManager<
     $$CategoriesTableUpdateCompanionBuilder,
     (Category, BaseReferences<_$AppDatabase, $CategoriesTable, Category>),
     Category,
+    PrefetchHooks Function()>;
+typedef $$LogSectionsTableCreateCompanionBuilder = LogSectionsCompanion
+    Function({
+  required String id,
+  required String ownerId,
+  required String checkInId,
+  required String revisionId,
+  Value<String?> categoryId,
+  required int position,
+  required String body,
+  Value<String> metadataJson,
+  required DateTime occurredAt,
+  required String timezoneId,
+  required String version,
+  required DateTime createdAt,
+  Value<int> rowid,
+});
+typedef $$LogSectionsTableUpdateCompanionBuilder = LogSectionsCompanion
+    Function({
+  Value<String> id,
+  Value<String> ownerId,
+  Value<String> checkInId,
+  Value<String> revisionId,
+  Value<String?> categoryId,
+  Value<int> position,
+  Value<String> body,
+  Value<String> metadataJson,
+  Value<DateTime> occurredAt,
+  Value<String> timezoneId,
+  Value<String> version,
+  Value<DateTime> createdAt,
+  Value<int> rowid,
+});
+
+class $$LogSectionsTableFilterComposer
+    extends Composer<_$AppDatabase, $LogSectionsTable> {
+  $$LogSectionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get checkInId => $composableBuilder(
+      column: $table.checkInId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get revisionId => $composableBuilder(
+      column: $table.revisionId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+      column: $table.categoryId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get position => $composableBuilder(
+      column: $table.position, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get body => $composableBuilder(
+      column: $table.body, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get metadataJson => $composableBuilder(
+      column: $table.metadataJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get timezoneId => $composableBuilder(
+      column: $table.timezoneId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$LogSectionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $LogSectionsTable> {
+  $$LogSectionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get checkInId => $composableBuilder(
+      column: $table.checkInId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get revisionId => $composableBuilder(
+      column: $table.revisionId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+      column: $table.categoryId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get position => $composableBuilder(
+      column: $table.position, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get body => $composableBuilder(
+      column: $table.body, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get metadataJson => $composableBuilder(
+      column: $table.metadataJson,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get timezoneId => $composableBuilder(
+      column: $table.timezoneId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get version => $composableBuilder(
+      column: $table.version, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$LogSectionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LogSectionsTable> {
+  $$LogSectionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get checkInId =>
+      $composableBuilder(column: $table.checkInId, builder: (column) => column);
+
+  GeneratedColumn<String> get revisionId => $composableBuilder(
+      column: $table.revisionId, builder: (column) => column);
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+      column: $table.categoryId, builder: (column) => column);
+
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get body =>
+      $composableBuilder(column: $table.body, builder: (column) => column);
+
+  GeneratedColumn<String> get metadataJson => $composableBuilder(
+      column: $table.metadataJson, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => column);
+
+  GeneratedColumn<String> get timezoneId => $composableBuilder(
+      column: $table.timezoneId, builder: (column) => column);
+
+  GeneratedColumn<String> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$LogSectionsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $LogSectionsTable,
+    LogSection,
+    $$LogSectionsTableFilterComposer,
+    $$LogSectionsTableOrderingComposer,
+    $$LogSectionsTableAnnotationComposer,
+    $$LogSectionsTableCreateCompanionBuilder,
+    $$LogSectionsTableUpdateCompanionBuilder,
+    (LogSection, BaseReferences<_$AppDatabase, $LogSectionsTable, LogSection>),
+    LogSection,
+    PrefetchHooks Function()> {
+  $$LogSectionsTableTableManager(_$AppDatabase db, $LogSectionsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LogSectionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LogSectionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LogSectionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> ownerId = const Value.absent(),
+            Value<String> checkInId = const Value.absent(),
+            Value<String> revisionId = const Value.absent(),
+            Value<String?> categoryId = const Value.absent(),
+            Value<int> position = const Value.absent(),
+            Value<String> body = const Value.absent(),
+            Value<String> metadataJson = const Value.absent(),
+            Value<DateTime> occurredAt = const Value.absent(),
+            Value<String> timezoneId = const Value.absent(),
+            Value<String> version = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LogSectionsCompanion(
+            id: id,
+            ownerId: ownerId,
+            checkInId: checkInId,
+            revisionId: revisionId,
+            categoryId: categoryId,
+            position: position,
+            body: body,
+            metadataJson: metadataJson,
+            occurredAt: occurredAt,
+            timezoneId: timezoneId,
+            version: version,
+            createdAt: createdAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String ownerId,
+            required String checkInId,
+            required String revisionId,
+            Value<String?> categoryId = const Value.absent(),
+            required int position,
+            required String body,
+            Value<String> metadataJson = const Value.absent(),
+            required DateTime occurredAt,
+            required String timezoneId,
+            required String version,
+            required DateTime createdAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LogSectionsCompanion.insert(
+            id: id,
+            ownerId: ownerId,
+            checkInId: checkInId,
+            revisionId: revisionId,
+            categoryId: categoryId,
+            position: position,
+            body: body,
+            metadataJson: metadataJson,
+            occurredAt: occurredAt,
+            timezoneId: timezoneId,
+            version: version,
+            createdAt: createdAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$LogSectionsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $LogSectionsTable,
+    LogSection,
+    $$LogSectionsTableFilterComposer,
+    $$LogSectionsTableOrderingComposer,
+    $$LogSectionsTableAnnotationComposer,
+    $$LogSectionsTableCreateCompanionBuilder,
+    $$LogSectionsTableUpdateCompanionBuilder,
+    (LogSection, BaseReferences<_$AppDatabase, $LogSectionsTable, LogSection>),
+    LogSection,
     PrefetchHooks Function()>;
 typedef $$CheckInsTableCreateCompanionBuilder = CheckInsCompanion Function({
   required String id,
@@ -14571,6 +15619,8 @@ class $AppDatabaseManager {
       $$ReminderTransitionsTableTableManager(_db, _db.reminderTransitions);
   $$CategoriesTableTableManager get categories =>
       $$CategoriesTableTableManager(_db, _db.categories);
+  $$LogSectionsTableTableManager get logSections =>
+      $$LogSectionsTableTableManager(_db, _db.logSections);
   $$CheckInsTableTableManager get checkIns =>
       $$CheckInsTableTableManager(_db, _db.checkIns);
   $$CheckInRevisionsTableTableManager get checkInRevisions =>

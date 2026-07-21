@@ -88,6 +88,7 @@ class CheckInSummary {
     this.category = 'Uncategorized',
     this.device = 'Unknown device',
     this.responseDelaySeconds,
+    this.sections = const [],
   });
   final String id;
   final String body;
@@ -95,6 +96,22 @@ class CheckInSummary {
   final String category;
   final String device;
   final int? responseDelaySeconds;
+  final List<LogSectionSummary> sections;
+}
+
+class LogSectionSummary {
+  const LogSectionSummary({
+    required this.id,
+    required this.path,
+    required this.body,
+    required this.metadata,
+    required this.position,
+  });
+  final String id;
+  final String path;
+  final String body;
+  final Map<String, String> metadata;
+  final int position;
 }
 
 class SearchFilterChoice {
@@ -206,39 +223,107 @@ class FocusLogRepository {
   String get _ownerId => identity.ownerId;
   String get _deviceId => identity.deviceId;
 
-  Future<String?> _inferredCategoryId(String body, DateTime occurredAt) async {
-    final parsed = parseJournalEntry(body);
-    if (!parsed.hasCategoryToken) return null;
-    final existing = await database.customSelect(
-      'SELECT id, deleted_at FROM categories WHERE owner_id = ? AND name = ?',
-      variables: [
-        Variable.withString(_ownerId),
-        Variable.withString(parsed.category),
-      ],
-    ).getSingleOrNull();
-    if (existing != null) {
-      final categoryId = existing.read<String>('id');
-      if (existing.readNullable<DateTime>('deleted_at') != null) {
+  List<Map<String, Object?>> _sectionPayload(String body) =>
+      parseJournalLog(body)
+          .sections
+          .map((section) => <String, Object?>{
+                'id': generateSyncId(),
+                'path': section.path,
+                'categoryPath': section.categoryPath,
+                'body': section.text,
+                'metadata': section.metadata,
+                'position': section.position,
+              })
+          .toList(growable: false);
+
+  Future<String?> _ensureCategoryPath(
+    List<String> segments,
+    DateTime occurredAt,
+  ) async {
+    final normalizedSegments = segments
+        .map(normalizeJournalCategory)
+        .where((segment) => segment.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedSegments.isEmpty) return null;
+    String? parentId;
+    String? leafId;
+    for (var depth = 1; depth <= normalizedSegments.length; depth += 1) {
+      final path = normalizedSegments.take(depth).join('/');
+      final existing = await database.customSelect(
+        'SELECT id, deleted_at FROM categories WHERE owner_id = ? AND path = ?',
+        variables: [
+          Variable.withString(_ownerId),
+          Variable.withString(path),
+        ],
+      ).getSingleOrNull();
+      if (existing != null) {
+        leafId = existing.read<String>('id');
+        if (existing.readNullable<DateTime>('deleted_at') != null) {
+          await database.customStatement(
+            'UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?',
+            [occurredAt, leafId],
+          );
+        }
+      } else {
+        leafId = generateSyncId();
         await database.customStatement(
-          'UPDATE categories SET deleted_at = NULL, updated_at = ? WHERE id = ?',
-          [occurredAt, categoryId],
+          'INSERT INTO categories (id, owner_id, parent_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            leafId,
+            _ownerId,
+            parentId,
+            normalizedSegments[depth - 1],
+            path,
+            depth,
+            generateSyncId(),
+            occurredAt,
+            occurredAt,
+          ],
         );
       }
-      return categoryId;
+      parentId = leafId;
     }
-    final categoryId = generateSyncId();
+    return leafId;
+  }
+
+  Future<void> _materializeSections({
+    required String checkInId,
+    required String revisionId,
+    required String body,
+    required DateTime occurredAt,
+    required String timezoneId,
+    List<Map<String, Object?>>? sections,
+  }) async {
+    final materialized = sections ?? _sectionPayload(body);
+    String? firstCategoryId;
+    for (final section in materialized) {
+      final categoryId = await _ensureCategoryPath(
+        (section['categoryPath'] as List).cast<String>(),
+        occurredAt,
+      );
+      firstCategoryId ??= categoryId;
+      await database.customStatement(
+        'INSERT OR IGNORE INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          section['id'],
+          _ownerId,
+          checkInId,
+          revisionId,
+          categoryId,
+          section['position'],
+          section['body'],
+          jsonEncode(section['metadata']),
+          occurredAt,
+          timezoneId,
+          revisionId,
+          occurredAt,
+        ],
+      );
+    }
     await database.customStatement(
-      'INSERT INTO categories (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        categoryId,
-        _ownerId,
-        parsed.category,
-        generateSyncId(),
-        occurredAt,
-        occurredAt,
-      ],
+      'UPDATE check_ins SET category_id = ? WHERE id = ?',
+      [firstCategoryId, checkInId],
     );
-    return categoryId;
   }
 
   Future<void> ensureIdentity() async {
@@ -729,16 +814,15 @@ class FocusLogRepository {
         .firstMatch(searchableText);
     if (deviceMatch != null) {
       deviceName = deviceMatch.group(1)!.toLowerCase();
-      searchableText = searchableText.replaceRange(
-          deviceMatch.start, deviceMatch.end, ' ');
+      searchableText =
+          searchableText.replaceRange(deviceMatch.start, deviceMatch.end, ' ');
     }
     final delayMatch = RegExp(r'delay>(\d+)([sm]?)', caseSensitive: false)
         .firstMatch(searchableText);
     if (delayMatch != null) {
       final value = int.parse(delayMatch.group(1)!);
-      minimumDelaySeconds = delayMatch.group(2)!.toLowerCase() == 'm'
-          ? value * 60
-          : value;
+      minimumDelaySeconds =
+          delayMatch.group(2)!.toLowerCase() == 'm' ? value * 60 : value;
       searchableText =
           searchableText.replaceRange(delayMatch.start, delayMatch.end, ' ');
     }
@@ -748,8 +832,8 @@ class FocusLogRepository {
       final start = DateTime(localNow.year, localNow.month, localNow.day);
       submittedAfter = start.toUtc();
       submittedBefore = start.add(const Duration(days: 1)).toUtc();
-      searchableText =
-          searchableText.replaceAll(RegExp(r'\btoday\b', caseSensitive: false), ' ');
+      searchableText = searchableText.replaceAll(
+          RegExp(r'\btoday\b', caseSensitive: false), ' ');
     } else if (RegExp(r'\blast\s+week\b').hasMatch(lowerSearch)) {
       final end = DateTime(localNow.year, localNow.month, localNow.day)
           .add(const Duration(days: 1));
@@ -769,16 +853,39 @@ class FocusLogRepository {
       'check_ins.deleted_at IS NULL',
       'check_in_revisions.deleted_at IS NULL',
     ];
-    final variables = <Variable<Object>>[Variable.withString(_ownerId)];
+    final variables = <Variable<Object>>[
+      if (terms.isNotEmpty) ...[
+        Variable.withString(terms),
+        Variable.withString('%${searchableText.trim().toLowerCase()}%'),
+      ],
+      Variable.withString(_ownerId),
+    ];
     if (categoryId != null) {
-      clauses.add('check_ins.category_id = ?');
-      variables.add(Variable.withString(categoryId));
+      final selected = await database.customSelect(
+        'SELECT path FROM categories WHERE id = ? AND owner_id = ?',
+        variables: [
+          Variable.withString(categoryId),
+          Variable.withString(_ownerId),
+        ],
+      ).getSingleOrNull();
+      if (selected != null) {
+        final path = selected.read<String>('path');
+        clauses.add(
+            '(section_categories.path = ? OR section_categories.path LIKE ?)');
+        variables
+          ..add(Variable.withString(path))
+          ..add(Variable.withString('$path/%'));
+      }
     } else if (categoryName != null) {
       if (categoryName == 'uncategorized') {
-        clauses.add('check_ins.category_id IS NULL');
+        clauses.add('log_sections.category_id IS NULL');
       } else {
-        clauses.add('LOWER(categories.name) = ?');
-        variables.add(Variable.withString(categoryName));
+        clauses.add(
+            '(LOWER(section_categories.path) = ? OR LOWER(section_categories.path) LIKE ? OR LOWER(section_categories.path) LIKE ?)');
+        variables
+          ..add(Variable.withString(categoryName))
+          ..add(Variable.withString('$categoryName/%'))
+          ..add(Variable.withString('%/$categoryName'));
       }
     }
     if (sessionId != null) {
@@ -789,10 +896,6 @@ class FocusLogRepository {
       clauses.add(
           'EXISTS (SELECT 1 FROM check_in_tags WHERE check_in_tags.check_in_id = check_ins.id AND check_in_tags.tag_id = ?)');
       variables.add(Variable.withString(tagId));
-    }
-    if (terms.isNotEmpty) {
-      clauses.add('check_in_revisions_fts MATCH ?');
-      variables.add(Variable.withString(terms));
     }
     if (deviceName != null) {
       clauses.add('LOWER(COALESCE(devices.platform, \'\')) LIKE ?');
@@ -809,39 +912,64 @@ class FocusLogRepository {
         ..add(Variable.withDateTime(submittedAfter))
         ..add(Variable.withDateTime(submittedBefore));
     }
-    final rank = terms.isEmpty ? '0.0' : '-bm25(check_in_revisions_fts, 10.0)';
-    final ftsJoin = terms.isEmpty
+    final matchedSections = terms.isEmpty
         ? ''
-        : 'JOIN check_in_revisions_fts ON check_in_revisions_fts.rowid = check_in_revisions.rowid';
+        : "WITH matched_sections AS (SELECT rowid, -bm25(log_sections_fts, 10.0) AS rank FROM log_sections_fts WHERE log_sections_fts MATCH ? UNION ALL SELECT log_sections.rowid, 0.25 AS rank FROM log_sections LEFT JOIN categories ON categories.id = log_sections.category_id WHERE LOWER(COALESCE(categories.path, 'uncategorized')) LIKE ?), ranked_sections AS (SELECT rowid, MAX(rank) AS rank FROM matched_sections GROUP BY rowid) ";
+    final rank = terms.isEmpty ? '0.0' : 'ranked_sections.rank';
+    final matchedJoin = terms.isEmpty
+        ? ''
+        : 'JOIN ranked_sections ON ranked_sections.rowid = log_sections.rowid ';
     final rows = await database
         .customSelect(
+          "$matchedSections"
           "SELECT check_ins.id, check_in_revisions.body, check_ins.submitted_at, "
-          "COALESCE(categories.name, 'Uncategorized') AS category, "
+          "COALESCE(section_categories.path, 'Uncategorized') AS category, "
           "COALESCE(devices.platform, 'Unknown device') AS device, "
           'CASE WHEN reminder_occurrences.resolved_at IS NULL THEN NULL '
           'ELSE MAX(0, CAST(strftime(\'%s\', reminder_occurrences.resolved_at) AS INTEGER) - '
           'CAST(strftime(\'%s\', reminder_occurrences.scheduled_at) AS INTEGER)) END AS response_delay_seconds, '
-          '$rank AS rank '
+          '$rank AS rank, log_sections.id AS section_id, '
+          "COALESCE(section_categories.path, 'Uncategorized') AS section_path, "
+          'log_sections.body AS section_body, log_sections.metadata_json, log_sections.position '
           'FROM check_ins '
           'JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id '
-          'LEFT JOIN categories ON categories.id = check_ins.category_id '
+          'JOIN log_sections ON log_sections.revision_id = check_ins.current_revision_id '
+          '$matchedJoin'
+          'LEFT JOIN categories AS section_categories ON section_categories.id = log_sections.category_id '
           'LEFT JOIN devices ON devices.id = check_in_revisions.author_device_id '
           'LEFT JOIN reminder_occurrences ON reminder_occurrences.id = check_ins.reminder_occurrence_id '
-          '$ftsJoin WHERE ${clauses.join(' AND ')} '
-          'ORDER BY rank DESC, check_ins.submitted_at DESC, check_ins.id LIMIT 100',
+          'WHERE ${clauses.join(' AND ')} '
+          'ORDER BY rank DESC, check_ins.submitted_at DESC, check_ins.id, log_sections.position LIMIT 10000',
           variables: variables,
         )
         .get();
-    return rows
-        .map((row) => CheckInSummary(
-              row.read<String>('id'),
-              row.read<String>('body'),
-              row.read<DateTime>('submitted_at'),
-              category: row.read<String>('category'),
-              device: row.read<String>('device'),
-              responseDelaySeconds: row.readNullable<int>('response_delay_seconds'),
-            ))
-        .toList();
+    final grouped = <String, CheckInSummary>{};
+    for (final row in rows) {
+      final id = row.read<String>('id');
+      final section = LogSectionSummary(
+        id: row.read<String>('section_id'),
+        path: row.read<String>('section_path'),
+        body: row.read<String>('section_body'),
+        metadata: (jsonDecode(row.read<String>('metadata_json')) as Map)
+            .cast<String, String>(),
+        position: row.read<int>('position'),
+      );
+      final existing = grouped[id];
+      if (existing != null) {
+        existing.sections.add(section);
+      } else {
+        grouped[id] = CheckInSummary(
+          id,
+          row.read<String>('body'),
+          row.read<DateTime>('submitted_at'),
+          category: row.read<String>('category'),
+          device: row.read<String>('device'),
+          responseDelaySeconds: row.readNullable<int>('response_delay_seconds'),
+          sections: [section],
+        );
+      }
+    }
+    return grouped.values.take(100).toList(growable: false);
   }
 
   Future<SearchFilterOptions> searchFilterOptions() async {
@@ -860,7 +988,7 @@ class FocusLogRepository {
       tags: await load(
           'SELECT id, name FROM tags WHERE owner_id = ? AND deleted_at IS NULL ORDER BY name, id'),
       categories: await load(
-          'SELECT id, name FROM categories WHERE owner_id = ? AND deleted_at IS NULL ORDER BY name, id'),
+          'SELECT id, COALESCE(path, name) AS name FROM categories WHERE owner_id = ? AND deleted_at IS NULL ORDER BY depth, path, id'),
       sessions: await load(
           "SELECT id, COALESCE(name, 'Focus session') AS name FROM focus_sessions WHERE owner_id = ? AND deleted_at IS NULL ORDER BY started_at DESC, id"),
     );
@@ -917,7 +1045,7 @@ class FocusLogRepository {
       }
     }
     final categoryRows = await database.customSelect(
-        "SELECT COALESCE(categories.name, 'Uncategorized') AS name, COUNT(*) AS count FROM check_ins LEFT JOIN categories ON categories.id = check_ins.category_id WHERE check_ins.owner_id = ? AND check_ins.submitted_at >= ? AND check_ins.submitted_at < ? GROUP BY COALESCE(categories.name, 'Uncategorized')",
+        "SELECT COALESCE(categories.path, 'Uncategorized') AS name, COUNT(*) AS count FROM log_sections JOIN check_ins ON check_ins.current_revision_id = log_sections.revision_id LEFT JOIN categories ON categories.id = log_sections.category_id WHERE check_ins.owner_id = ? AND check_ins.deleted_at IS NULL AND check_ins.submitted_at >= ? AND check_ins.submitted_at < ? GROUP BY COALESCE(categories.path, 'Uncategorized')",
         variables: [
           Variable.withString(_ownerId),
           Variable.withDateTime(bounds.start),
@@ -1007,13 +1135,32 @@ class FocusLogRepository {
       'with',
     };
     for (final entry in timeline.where((entry) => entry.kind == 'CHECK_IN')) {
-      final parsed = parseJournalEntry(entry.detail);
-      activityCounts[parsed.text] = (activityCounts[parsed.text] ?? 0) + 1;
-      for (final word in parsed.text
-          .toLowerCase()
-          .split(RegExp(r"[^a-z0-9À-ž'’-]+"))
-          .where((word) => word.length >= 3 && !ignoredWords.contains(word))) {
-        wordCounts[word] = (wordCounts[word] ?? 0) + 1;
+      for (final section in parseJournalLog(entry.detail).sections) {
+        activityCounts[section.text] = (activityCounts[section.text] ?? 0) + 1;
+        for (final word in section.text
+            .toLowerCase()
+            .split(RegExp(r"[^a-z0-9À-ž'’-]+"))
+            .where(
+                (word) => word.length >= 3 && !ignoredWords.contains(word))) {
+          wordCounts[word] = (wordCounts[word] ?? 0) + 1;
+        }
+      }
+    }
+    final categoryCounts = <String, int>{};
+    for (final row in categoryRows) {
+      final path = row.read<String>('name');
+      final count = row.read<int>('count');
+      final segments =
+          path == 'Uncategorized' ? const <String>[] : path.split('/');
+      if (segments.isEmpty) {
+        categoryCounts['Uncategorized'] =
+            (categoryCounts['Uncategorized'] ?? 0) + count;
+      } else {
+        for (var depth = 1; depth <= segments.length; depth += 1) {
+          final categoryPath = segments.take(depth).join('/');
+          categoryCounts[categoryPath] =
+              (categoryCounts[categoryPath] ?? 0) + count;
+        }
       }
     }
     final rankedActivities = activityCounts.entries.toList()
@@ -1047,10 +1194,7 @@ class FocusLogRepository {
         wordCloud: {
           for (final entry in rankedWords.take(16)) entry.key: entry.value,
         },
-        categories: {
-          for (final row in categoryRows)
-            row.read<String>('name'): row.read<int>('count')
-        },
+        categories: categoryCounts,
         occurrenceStates: occurrenceStates,
         timeline: timeline,
         weekly: await trend(7),
@@ -1274,7 +1418,7 @@ class FocusLogRepository {
           'Reminder completion requires at least 20 characters.');
     }
     final occurrence = await database.customSelect(
-        'SELECT state, focus_session_id, version FROM reminder_occurrences WHERE id = ?',
+        'SELECT state, focus_session_id, version, timezone_id FROM reminder_occurrences WHERE id = ?',
         variables: [Variable.withString(occurrenceId)]).getSingleOrNull();
     if (occurrence == null) throw StateError('Reminder was not found.');
     final state = occurrence.read<String>('state');
@@ -1286,8 +1430,8 @@ class FocusLogRepository {
     final revisionId = generateSyncId();
     final operationId = generateSyncId();
     final transitionId = generateSyncId();
+    final sections = _sectionPayload(text.trim());
     await database.transaction(() async {
-      final categoryId = await _inferredCategoryId(text, now);
       await database.customStatement(
           'INSERT INTO reminder_transitions (id, owner_id, reminder_occurrence_id, acting_device_id, from_state, to_state, original_scheduled_at, occurred_at, operation_id, created_at) SELECT ?, owner_id, id, ?, state, \'COMPLETED\', original_scheduled_at, ?, ?, ? FROM reminder_occurrences WHERE id = ?',
           [transitionId, _deviceId, now, operationId, now, occurrenceId]);
@@ -1295,15 +1439,15 @@ class FocusLogRepository {
           "UPDATE reminder_occurrences SET state = 'COMPLETED', resolved_at = ?, version = ?, updated_at = ? WHERE id = ?",
           [now, operationId, now, occurrenceId]);
       await database.customStatement(
-          'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, \'UTC\', ?, ?, ?)',
+          'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)',
           [
             checkInId,
             _ownerId,
             occurrenceId,
             occurrence.read<String>('focus_session_id'),
-            categoryId,
             revisionId,
             now,
+            occurrence.read<String>('timezone_id'),
             revisionId,
             now,
             now
@@ -1311,6 +1455,14 @@ class FocusLogRepository {
       await database.customStatement(
           'INSERT INTO check_in_revisions (id, check_in_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
           [revisionId, checkInId, text.trim(), _deviceId, operationId, now]);
+      await _materializeSections(
+        checkInId: checkInId,
+        revisionId: revisionId,
+        body: text.trim(),
+        occurredAt: now,
+        timezoneId: occurrence.read<String>('timezone_id'),
+        sections: sections,
+      );
       await _queue(
           'reminder_occurrence',
           occurrenceId,
@@ -1321,6 +1473,7 @@ class FocusLogRepository {
             'revisionId': revisionId,
             'body': text.trim(),
             'completedAt': now.toIso8601String(),
+            'sections': sections,
           },
           baseVersion: occurrence.read<String>('version'),
           operationId: operationId);
@@ -1410,24 +1563,23 @@ class FocusLogRepository {
     final revisionId = generateSyncId();
     final operationId = generateSyncId();
     final now = DateTime.now().toUtc();
+    final sections = _sectionPayload(text.trim());
     await database.transaction(() async {
-      final categoryId = await _inferredCategoryId(text, now);
       await database.customStatement(
-        "INSERT INTO check_ins (id, owner_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'UTC', ?, ?, ?)",
-        [
-          checkInId,
-          _ownerId,
-          categoryId,
-          revisionId,
-          now,
-          revisionId,
-          now,
-          now
-        ],
+        "INSERT INTO check_ins (id, owner_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, 'UTC', ?, ?, ?)",
+        [checkInId, _ownerId, revisionId, now, revisionId, now, now],
       );
       await database.customStatement(
         'INSERT INTO check_in_revisions (id, check_in_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         [revisionId, checkInId, text.trim(), _deviceId, operationId, now],
+      );
+      await _materializeSections(
+        checkInId: checkInId,
+        revisionId: revisionId,
+        body: text.trim(),
+        occurredAt: now,
+        timezoneId: 'UTC',
+        sections: sections,
       );
       await _queue(
         'check_in',
@@ -1438,7 +1590,8 @@ class FocusLogRepository {
           'body': text.trim(),
           'submittedAt': now.toIso8601String(),
           'timezoneId': 'UTC',
-          'reminderCompletion': false
+          'reminderCompletion': false,
+          'sections': sections,
         },
         operationId: operationId,
       );
@@ -1451,7 +1604,7 @@ class FocusLogRepository {
       throw ArgumentError('Check-in text cannot be empty.');
     }
     final current = await database.customSelect(
-        'SELECT current_revision_id FROM check_ins WHERE id = ? AND owner_id = ? AND deleted_at IS NULL',
+        'SELECT current_revision_id, submitted_at, timezone_id FROM check_ins WHERE id = ? AND owner_id = ? AND deleted_at IS NULL',
         variables: [
           Variable.withString(checkInId),
           Variable.withString(_ownerId)
@@ -1461,8 +1614,8 @@ class FocusLogRepository {
     final revisionId = generateSyncId();
     final operationId = generateSyncId();
     final now = DateTime.now().toUtc();
+    final sections = _sectionPayload(text.trim());
     await database.transaction(() async {
-      final categoryId = await _inferredCategoryId(text, now);
       await database.customStatement(
           'INSERT INTO check_in_revisions (id, check_in_id, parent_revision_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [
@@ -1475,8 +1628,16 @@ class FocusLogRepository {
             now
           ]);
       await database.customStatement(
-          'UPDATE check_ins SET category_id = ?, current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
-          [categoryId, revisionId, revisionId, now, checkInId]);
+          'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?',
+          [revisionId, revisionId, now, checkInId]);
+      await _materializeSections(
+        checkInId: checkInId,
+        revisionId: revisionId,
+        body: text.trim(),
+        occurredAt: current.read<DateTime>('submitted_at'),
+        timezoneId: current.read<String>('timezone_id'),
+        sections: sections,
+      );
       await _queue(
           'check_in',
           checkInId,
@@ -1484,7 +1645,8 @@ class FocusLogRepository {
           {
             'revisionId': revisionId,
             'body': text.trim(),
-            'createdAt': now.toIso8601String()
+            'createdAt': now.toIso8601String(),
+            'sections': sections,
           },
           baseVersion: baseVersion,
           operationId: operationId);
