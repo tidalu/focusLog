@@ -19,6 +19,7 @@
     "prestart": "pnpm run rebuild:native:electron",
     "start": "electron .",
     "lint": "eslint src electron",
+    "pretypecheck": "pnpm run build:shared",
     "typecheck": "tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.renderer.json",
     "pretest": "pnpm run build:shared && pnpm run rebuild:native:node",
     "test": "vitest run --config vitest.config.ts",

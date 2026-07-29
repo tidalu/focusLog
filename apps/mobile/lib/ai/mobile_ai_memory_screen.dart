@@ -112,7 +112,7 @@ class _MobileAIMemoryScreenState extends State<MobileAIMemoryScreen> {
               return RefreshIndicator(
                 onRefresh: _refresh,
                 child: ListView(
-                  cacheExtent: 20000.0,
+                  scrollCacheExtent: 20000.0,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                   children: [
                     _NamespaceCard(
