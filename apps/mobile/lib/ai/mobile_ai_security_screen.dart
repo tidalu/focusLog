@@ -88,10 +88,13 @@ class _MobileAISecurityScreenState extends State<MobileAISecurityScreen> {
               final data = snapshot.data!;
               return RefreshIndicator(
                 onRefresh: _refresh,
-                child: ListView(
-                  scrollCacheExtent: 20000.0,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                  children: [
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                     _SecurityReviewCard(review: data.review),
                     const SizedBox(height: 12),
                     _ResourceCard(resources: data.resources),
@@ -103,7 +106,9 @@ class _MobileAISecurityScreenState extends State<MobileAISecurityScreen> {
                     _ReleaseGateCard(releaseGate: data.releaseGate),
                     const SizedBox(height: 12),
                     _DiagnosticsCard(diagnostics: data.diagnostics),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               );
             },

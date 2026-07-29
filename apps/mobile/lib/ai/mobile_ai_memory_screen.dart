@@ -111,10 +111,13 @@ class _MobileAIMemoryScreenState extends State<MobileAIMemoryScreen> {
               final data = snapshot.data!;
               return RefreshIndicator(
                 onRefresh: _refresh,
-                child: ListView(
-                  scrollCacheExtent: 20000.0,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                  children: [
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                     _NamespaceCard(
                       status: data.status,
                       onControl: (action) async {
@@ -174,7 +177,9 @@ class _MobileAIMemoryScreenState extends State<MobileAIMemoryScreen> {
                       answers: data.answers,
                       onAsk: _askQuestion,
                     ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               );
             },

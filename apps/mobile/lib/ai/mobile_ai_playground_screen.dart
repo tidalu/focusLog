@@ -86,10 +86,13 @@ class _MobileAIPlaygroundScreenState extends State<MobileAIPlaygroundScreen> {
               final data = snapshot.data!;
               return RefreshIndicator(
                 onRefresh: _refresh,
-                child: ListView(
-                  scrollCacheExtent: 20000.0,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                  children: [
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                     _DecisionCard(decision: data.decision),
                     const SizedBox(height: 12),
                     _SessionsCard(sessions: data.sessions),
@@ -100,7 +103,9 @@ class _MobileAIPlaygroundScreenState extends State<MobileAIPlaygroundScreen> {
                       diagnostics: data.diagnostics,
                       exportPreview: data.exportPreview,
                     ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
               );
             },

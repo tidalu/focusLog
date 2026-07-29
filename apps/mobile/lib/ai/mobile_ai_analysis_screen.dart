@@ -214,10 +214,13 @@ class _MobileAIAnalysisScreenState extends State<MobileAIAnalysisScreen>
                 final data = snapshot.data!;
                 return RefreshIndicator(
                   onRefresh: _refresh,
-                  child: ListView(
-                    scrollCacheExtent: 20000.0,
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                    children: [
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                       _ExecutorCard(executor: data.executor),
                       const SizedBox(height: 12),
                       _PolicyBudgetCard(
@@ -300,7 +303,9 @@ class _MobileAIAnalysisScreenState extends State<MobileAIAnalysisScreen>
                           await _refresh();
                         },
                       ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
