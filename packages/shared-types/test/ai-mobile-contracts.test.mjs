@@ -40,7 +40,7 @@ test('AI mobile shared contract preserves exact money, errors, provenance, and r
   assert.ok(contract.provenanceKinds.includes('provider_attempt'));
   assert.ok(contract.redactionForbiddenFields.includes('rawProviderResponse'));
   assert.match(typescript, /export const aiMobileMicroUnitPattern = '\^\[0-9\]\+\$' as const/);
-  assert.match(dart, /const aiMobileMicroUnitPattern = "\^\[0-9\]\+\$";/);
+  assert.match(dart, /const aiMobileMicroUnitPattern = "\^\[0-9\]\+\\\$";/);
 });
 
 test('AI mobile future schema compatibility fails safely', () => {

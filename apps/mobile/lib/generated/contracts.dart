@@ -5,7 +5,7 @@ const websocketProtocolVersion = '1';
 const aiMobileContractVersion = 1;
 const aiMobileMinReadableSchemaVersion = 1;
 const aiMobileMaxReadableSchemaVersion = 1;
-const aiMobileMicroUnitPattern = "^[0-9]+$";
+const aiMobileMicroUnitPattern = "^[0-9]+\$";
 
 enum ClientWebSocketMessageType {
   presenceHello("presence.hello"),

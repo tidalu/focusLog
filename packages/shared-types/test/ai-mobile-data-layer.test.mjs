@@ -103,7 +103,7 @@ const methodSource = (source, methodName) => {
 };
 
 test('mobile AI data layer migrates durable projection and sync tables', () => {
-  assert.match(databaseSource, /int get schemaVersion => 8;/);
+  assert.match(databaseSource, /int get schemaVersion => 9;/);
   for (const table of [
     'ai_mobile_analysis_results',
     'ai_mobile_job_projections',
@@ -428,7 +428,7 @@ test('mobile release gate records Android certification blockers without claimin
   assert.match(aiTroubleshootingSource, /Mobile AI release gate/);
   assert.match(aiTroubleshootingSource, /flutter is not recognized/);
   for (const row of ['M-I-1', 'M-I-2', 'M-I-3', 'M-I-4', 'M-I-5']) {
-    assert.match(mobileAcceptanceSource, new RegExp(`\\| ${row} \\|`));
+    assert.match(mobileAcceptanceSource, new RegExp(`\\|\\s*${row}\\s*\\|`));
   }
   assert.match(mobileReleaseReportSource, /Do not describe FocusLog mobile AI as complete/);
   assert.doesNotMatch(mobileReleaseReportSource, /Android is certified|production-ready Android/i);
@@ -468,7 +468,7 @@ test('cross-platform final gate records architecture and blocks false Android ce
     'X-FINAL-ANDROID-BUILD',
     'X-FINAL-IOS-BUILD'
   ]) {
-    assert.match(crossPlatformAcceptanceSource, new RegExp(`\\| ${row} \\|`));
+    assert.match(crossPlatformAcceptanceSource, new RegExp(`\\|\\s*${row}\\s*\\|`));
   }
 
   assert.match(crossPlatformAcceptanceSource, /flutter.*unavailable on PATH/i);

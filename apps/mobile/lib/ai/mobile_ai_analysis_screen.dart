@@ -392,7 +392,7 @@ class _PolicyBudgetCardState extends State<_PolicyBudgetCard> {
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: policy.privacyMode,
+            initialValue: policy.privacyMode,
             decoration: const InputDecoration(labelText: 'Privacy mode'),
             items: const [
               DropdownMenuItem(value: 'DISABLED', child: Text('Disabled')),
@@ -631,7 +631,7 @@ class _ManualPeriodCardState extends State<_ManualPeriodCard> {
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: selected.isEmpty ? null : selected,
+            initialValue: selected.isEmpty ? null : selected,
             decoration: const InputDecoration(labelText: 'Eligible period'),
             items: [
               for (final period in widget.periods)

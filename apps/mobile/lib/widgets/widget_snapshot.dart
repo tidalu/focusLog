@@ -41,14 +41,12 @@ class WidgetSnapshotPublisher {
         'activeSessionStatus': session?.status,
         'activeSessionStartedAt': session?.startedAt.toUtc().toIso8601String(),
         'nextReminderAt': reminder?.dueAt.toUtc().toIso8601String(),
-        'timeUntilNextReminderMinutes': reminder == null
-            ? null
-            : reminder.dueAt
-                .toUtc()
-                .difference(now)
-                .inMinutes
-                .clamp(0, 1 << 30)
-                .toInt(),
+        'timeUntilNextReminderMinutes': reminder?.dueAt
+            .toUtc()
+            .difference(now)
+            .inMinutes
+            .clamp(0, 1 << 30)
+            .toInt(),
         'currentActivity': currentActivity,
         // Android has no persisted AI-memory store yet; no AI request is ever made here.
         'latestInsight': null,

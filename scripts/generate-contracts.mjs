@@ -118,21 +118,22 @@ const typescript = await format(typescriptSource, {
 const dartName = (value) =>
   value.replace(/[.-]([a-z])/g, (_, character) => character.toUpperCase());
 const dartAiName = (value) => value.replace(/_([a-z])/g, (_, character) => character.toUpperCase());
+const dartStringLiteral = (value) => JSON.stringify(value).replace(/\$/g, '\\$');
 const dartEnum = (name, values) => `enum ${name} {
-${values.map((value) => `  ${dartName(value)}(${JSON.stringify(value)})`).join(',\n')};
+${values.map((value) => `  ${dartName(value)}(${dartStringLiteral(value)})`).join(',\n')};
 
   const ${name}(this.wireName);
   final String wireName;
 }
 `;
 const dartStringList = (name, values) =>
-  `const ${name} = <String>[${values.map((value) => JSON.stringify(value)).join(', ')}];`;
+  `const ${name} = <String>[${values.map((value) => dartStringLiteral(value)).join(', ')}];`;
 const dartStringMap = (name, value) =>
   `const ${name} = <String, String>{${Object.entries(value)
-    .map(([key, mapValue]) => `${JSON.stringify(key)}: ${JSON.stringify(mapValue)}`)
+    .map(([key, mapValue]) => `${dartStringLiteral(key)}: ${dartStringLiteral(mapValue)}`)
     .join(', ')}};`;
 const dartAiEnum = (name, values) => `enum ${name} {
-${values.map((value) => `  ${dartAiName(value)}(${JSON.stringify(value)})`).join(',\n')};
+${values.map((value) => `  ${dartAiName(value)}(${dartStringLiteral(value)})`).join(',\n')};
 
   const ${name}(this.wireName);
   final String wireName;
@@ -146,7 +147,7 @@ const websocketProtocolVersion = '1';
 const aiMobileContractVersion = ${JSON.stringify(aiMobile.schemaVersion)};
 const aiMobileMinReadableSchemaVersion = ${JSON.stringify(aiMobile.compatibility.minReadableSchemaVersion)};
 const aiMobileMaxReadableSchemaVersion = ${JSON.stringify(aiMobile.compatibility.maxReadableSchemaVersion)};
-const aiMobileMicroUnitPattern = ${JSON.stringify(aiMobile.money.microUnitStringPattern)};
+const aiMobileMicroUnitPattern = ${dartStringLiteral(aiMobile.money.microUnitStringPattern)};
 
 ${dartEnum('ClientWebSocketMessageType', clientTypes)}
 ${dartEnum('ServerWebSocketMessageType', serverTypes)}
