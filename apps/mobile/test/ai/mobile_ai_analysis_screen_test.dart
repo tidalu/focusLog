@@ -125,7 +125,9 @@ void main() {
     expect(find.textContaining('You protected the morning'), findsOneWidget);
     expect(find.textContaining('12345 micro-usd'), findsOneWidget);
 
-    await tester.tap(find.textContaining('You protected the morning'));
+    final resultTile = find.textContaining('You protected the morning');
+    await tester.ensureVisible(resultTile);
+    await tester.tap(resultTile);
     await tester.pumpAndSettle();
 
     expect(find.text('Structured sections'), findsOneWidget);
@@ -142,11 +144,14 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Analyze Now').last);
+    final analyzeButton = find.text('Analyze Now').last;
+    await tester.ensureVisible(analyzeButton);
+    await tester.tap(analyzeButton);
     await tester.pumpAndSettle();
     final firstCount = await repository.safeCounts();
 
-    await tester.tap(find.text('Analyze Now').last);
+    await tester.ensureVisible(analyzeButton);
+    await tester.tap(analyzeButton);
     await tester.pumpAndSettle();
     final secondCount = await repository.safeCounts();
 

@@ -211,7 +211,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI memory'), findsOneWidget);
-    expect(find.textContaining('memory-local-v1'), findsOneWidget);
+    expect(find.text('Active: memory-local-v1'), findsOneWidget);
     expect(find.textContaining('Focus sprint about capstone'), findsOneWidget);
     expect(find.textContaining('Capstone needs weekly review'), findsOneWidget);
     expect(find.text('Knowledge graph'), findsOneWidget);
