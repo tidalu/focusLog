@@ -2,7 +2,6 @@ import {
   addReportDays,
   heatmapDays,
   localDayForInstant,
-  parseJournalEntry,
   reportDayBounds,
   type HeatmapDay
 } from '@focuslog/shared-utils';
@@ -21,6 +20,13 @@ export type TimelineEntry = {
   category?: string;
   device?: string;
   responseDelaySeconds?: number;
+  sections?: Array<{
+    id: string;
+    path: string;
+    body: string;
+    metadata: Record<string, string>;
+    position: number;
+  }>;
 };
 
 export type DailyReport = {
@@ -195,14 +201,12 @@ export class ReportingService {
         `SELECT check_ins.id, check_in_revisions.body,
                 check_ins.submitted_at AS submittedAt,
                 check_ins.timezone_id AS timezoneId,
-                COALESCE(categories.name, 'Uncategorized') AS category,
                 COALESCE(devices.platform, 'unknown') AS device,
                 CASE WHEN reminder_occurrences.scheduled_at IS NULL THEN NULL ELSE
                   MAX(0, CAST(ROUND((julianday(check_ins.submitted_at) - julianday(reminder_occurrences.scheduled_at)) * 86400) AS INTEGER))
                 END AS responseDelaySeconds
            FROM check_ins
            JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id
-           LEFT JOIN categories ON categories.id = check_ins.category_id
            LEFT JOIN devices ON devices.id = check_in_revisions.author_device_id
            LEFT JOIN reminder_occurrences ON reminder_occurrences.id = check_ins.reminder_occurrence_id
           WHERE check_ins.owner_id = ? AND check_ins.deleted_at IS NULL
@@ -214,18 +218,74 @@ export class ReportingService {
       body: string;
       submittedAt: string;
       timezoneId: string;
-      category: string;
       device: string;
       responseDelaySeconds: number | null;
     }>;
+    const sectionRows = this.database
+      .prepare(
+        `SELECT log_sections.id, log_sections.check_in_id AS checkInId,
+                log_sections.body, log_sections.metadata_json AS metadataJson,
+                log_sections.position,
+                COALESCE(categories.path, 'Uncategorized') AS path
+           FROM log_sections
+           JOIN check_ins ON check_ins.current_revision_id = log_sections.revision_id
+           LEFT JOIN categories ON categories.id = log_sections.category_id
+          WHERE check_ins.owner_id = ? AND check_ins.deleted_at IS NULL
+            AND check_ins.submitted_at >= ? AND check_ins.submitted_at < ?
+          ORDER BY log_sections.check_in_id, log_sections.position`
+      )
+      .all(this.ownerId, start, end) as Array<{
+      id: string;
+      checkInId: string;
+      body: string;
+      metadataJson: string;
+      position: number;
+      path: string;
+    }>;
+    const sectionsByCheckIn = new Map<
+      string,
+      Array<{
+        id: string;
+        path: string;
+        body: string;
+        metadata: Record<string, string>;
+        position: number;
+      }>
+    >();
+    for (const section of sectionRows) {
+      const list = sectionsByCheckIn.get(section.checkInId) ?? [];
+      list.push({
+        id: section.id,
+        path: section.path,
+        body: section.body,
+        metadata: JSON.parse(section.metadataJson) as Record<string, string>,
+        position: section.position
+      });
+      sectionsByCheckIn.set(section.checkInId, list);
+    }
     const categoryCounts = new Map<string, number>();
     const activityCounts = new Map<string, number>();
     const words = new Map<string, number>();
     const hourlyCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
     for (const item of checkIns) {
-      categoryCounts.set(item.category, (categoryCounts.get(item.category) ?? 0) + 1);
-      const parsed = parseJournalEntry(item.body);
-      activityCounts.set(parsed.text, (activityCounts.get(parsed.text) ?? 0) + 1);
+      const sections = sectionsByCheckIn.get(item.id) ?? [];
+      for (const section of sections) {
+        const pathParts = section.path === 'Uncategorized' ? [] : section.path.split('/');
+        if (!pathParts.length) {
+          categoryCounts.set('Uncategorized', (categoryCounts.get('Uncategorized') ?? 0) + 1);
+        } else {
+          for (let depth = 1; depth <= pathParts.length; depth += 1) {
+            const path = pathParts.slice(0, depth).join('/');
+            categoryCounts.set(path, (categoryCounts.get(path) ?? 0) + 1);
+          }
+        }
+        if (section.body)
+          activityCounts.set(section.body, (activityCounts.get(section.body) ?? 0) + 1);
+        for (const match of section.body.toLocaleLowerCase().match(wordPattern) ?? []) {
+          if (match.length < 3 || ignoredWords.has(match)) continue;
+          words.set(match, (words.get(match) ?? 0) + 1);
+        }
+      }
       const hour = Number(
         new Intl.DateTimeFormat('en-US', {
           timeZone: selection.timezoneId,
@@ -234,10 +294,6 @@ export class ReportingService {
         }).format(new Date(item.submittedAt))
       );
       if (hourlyCounts[hour]) hourlyCounts[hour].count += 1;
-      for (const match of parsed.text.toLocaleLowerCase().match(wordPattern) ?? []) {
-        if (match.length < 3 || ignoredWords.has(match)) continue;
-        words.set(match, (words.get(match) ?? 0) + 1);
-      }
     }
     const mostCommonActivity =
       Array.from(activityCounts).sort(
@@ -265,22 +321,30 @@ export class ReportingService {
     const distractionNames = new Set(['youtube', 'entertainment', 'social', 'gaming']);
     const biggestDistraction =
       Array.from(categoryCounts)
-        .filter(([name]) => distractionNames.has(name.toLocaleLowerCase()))
+        .filter(([name]) => distractionNames.has(name.split('/')[0]?.toLocaleLowerCase() ?? ''))
         .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
 
-    const timeline: TimelineEntry[] = checkIns.map((item) => ({
-      id: item.id,
-      kind: 'CHECK_IN',
-      occurredAt: item.submittedAt,
-      title: item.category,
-      detail: parseJournalEntry(item.body).text,
-      originalTimezoneId: item.timezoneId,
-      category: item.category,
-      device: item.device,
-      ...(item.responseDelaySeconds == null
-        ? {}
-        : { responseDelaySeconds: item.responseDelaySeconds })
-    }));
+    const timeline: TimelineEntry[] = checkIns.map((item) => {
+      const sections = sectionsByCheckIn.get(item.id) ?? [];
+      const category = sections[0]?.path ?? 'Uncategorized';
+      return {
+        id: item.id,
+        kind: 'CHECK_IN',
+        occurredAt: item.submittedAt,
+        title: category,
+        detail: sections
+          .map((section) => section.body)
+          .filter(Boolean)
+          .join('\n\n'),
+        originalTimezoneId: item.timezoneId,
+        category,
+        device: item.device,
+        sections,
+        ...(item.responseDelaySeconds == null
+          ? {}
+          : { responseDelaySeconds: item.responseDelaySeconds })
+      };
+    });
     timeline.push(
       ...occurrences.map((item) => ({
         id: item.id,

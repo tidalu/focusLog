@@ -13,4 +13,19 @@ void main() {
     expect(uncategorized.text, 'Watching YouTube');
     expect(uncategorized.hasCategoryToken, isFalse);
   });
+
+  test('parses ordered hierarchical sections and metadata', () {
+    final parsed = parseJournalLog('''<shopping>
+Bought groceries.
+
+<study><leetcode>
+Solved problem 904.
+#difficulty=Hard''');
+
+    expect(parsed.sections, hasLength(2));
+    expect(parsed.sections.first.path, 'shopping');
+    expect(parsed.sections.last.categoryPath, ['study', 'leetcode']);
+    expect(parsed.sections.last.text, 'Solved problem 904.');
+    expect(parsed.sections.last.metadata, {'difficulty': 'Hard'});
+  });
 }

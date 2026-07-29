@@ -8,21 +8,95 @@ export type ParsedJournalEntry = {
   hasCategoryToken: boolean;
 };
 
-const categoryTokenPattern = /^<([^<>\r\n]{1,80})>\s*/u;
+export type ParsedLogSection = {
+  categoryPath: string[];
+  path: string;
+  text: string;
+  metadata: Record<string, string>;
+  position: number;
+};
+
+export type ParsedJournalLog = {
+  sections: ParsedLogSection[];
+};
+
+const categoryTokenPattern = /<([^<>\r\n]{1,80})>/gu;
+const sectionHeaderPattern = /^[\t ]*((?:<[^<>\r\n]{1,80}>[\t ]*)+)(.*)$/gmu;
+const metadataPattern = /^#([\p{L}\p{N}_.-]{1,80})\s*=\s*(.+)$/u;
 
 export const normalizeJournalCategory = (value: string): string =>
-  value.trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
+  value
+    .trim()
+    .replace(/[\\/]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .toLocaleLowerCase();
+
+function sectionContent(value: string): { text: string; metadata: Record<string, string> } {
+  const metadata: Record<string, string> = {};
+  const bodyLines: string[] = [];
+  for (const line of value.trim().split(/\r?\n/u)) {
+    const match = metadataPattern.exec(line.trim());
+    if (match) metadata[(match[1] ?? '').toLocaleLowerCase()] = (match[2] ?? '').trim();
+    else bodyLines.push(line);
+  }
+  return { text: bodyLines.join('\n').trim(), metadata };
+}
+
+export const parseJournalLog = (value: string): ParsedJournalLog => {
+  const body = value.trim();
+  if (!body) return { sections: [] };
+  const headers = Array.from(body.matchAll(sectionHeaderPattern));
+  if (!headers.length) {
+    const content = sectionContent(body);
+    return {
+      sections: [
+        {
+          categoryPath: [],
+          path: 'Uncategorized',
+          ...content,
+          position: 0
+        }
+      ]
+    };
+  }
+
+  const sections: ParsedLogSection[] = [];
+  const leading = body.slice(0, headers[0]?.index ?? 0).trim();
+  if (leading) {
+    sections.push({
+      categoryPath: [],
+      path: 'Uncategorized',
+      ...sectionContent(leading),
+      position: sections.length
+    });
+  }
+  for (const [headerIndex, header] of headers.entries()) {
+    const tokens = Array.from((header[1] ?? '').matchAll(categoryTokenPattern))
+      .map((match) => normalizeJournalCategory(match[1] ?? ''))
+      .filter(Boolean);
+    const bodyStart = (header.index ?? 0) + header[0].length;
+    const bodyEnd = headers[headerIndex + 1]?.index ?? body.length;
+    const inline = (header[2] ?? '').trim();
+    const following = body.slice(bodyStart, bodyEnd).trim();
+    const content = sectionContent([inline, following].filter(Boolean).join('\n'));
+    sections.push({
+      categoryPath: tokens,
+      path: tokens.length ? tokens.join('/') : 'Uncategorized',
+      ...content,
+      position: sections.length
+    });
+  }
+  return { sections };
+};
 
 export const parseJournalEntry = (value: string): ParsedJournalEntry => {
-  const body = value.trim();
-  const match = categoryTokenPattern.exec(body);
-  if (!match) return { category: 'Uncategorized', text: body, hasCategoryToken: false };
-  const category = normalizeJournalCategory(match[1] ?? '');
-  if (!category) return { category: 'Uncategorized', text: body, hasCategoryToken: false };
+  const parsed = parseJournalLog(value);
+  const first = parsed.sections[0];
+  if (!first) return { category: 'Uncategorized', text: '', hasCategoryToken: false };
   return {
-    category,
-    text: body.slice(match[0].length).trim(),
-    hasCategoryToken: true
+    category: first.path,
+    text: first.text,
+    hasCategoryToken: first.categoryPath.length > 0
   };
 };
 

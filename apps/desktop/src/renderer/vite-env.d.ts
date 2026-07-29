@@ -593,6 +593,13 @@ interface Window {
         device: string;
         responseDelaySeconds: number | null;
         focusSessionId: string | null;
+        sections: Array<{
+          id: string;
+          path: string;
+          body: string;
+          metadata: Record<string, string>;
+          position: number;
+        }>;
       }>
     >;
     searchFilters(): Promise<{
@@ -638,6 +645,13 @@ interface Window {
         category?: string;
         device?: string;
         responseDelaySeconds?: number;
+        sections?: Array<{
+          id: string;
+          path: string;
+          body: string;
+          metadata: Record<string, string>;
+          position: number;
+        }>;
       }>;
       trends: { weekly: number; monthly: number; yearly: number };
     }>;

@@ -73,7 +73,14 @@ integration('PostgreSQL full-text search', () => {
       }
     });
     await prisma.category.create({
-      data: { id: categoryId, ownerId, name: 'Deep work', version: ulid() }
+      data: {
+        id: categoryId,
+        ownerId,
+        name: 'deep work',
+        path: 'deep work',
+        depth: 1,
+        version: ulid()
+      }
     });
     await prisma.tag.create({
       data: { id: tagId, ownerId, name: 'Architecture', version: ulid() }
@@ -112,6 +119,30 @@ integration('PostgreSQL full-text search', () => {
         now()
       FROM generate_series(1, 10000) value
     `);
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "log_sections" (
+        id, "ownerId", "checkInId", "revisionId", "categoryId", position,
+        body, metadata, "occurredAt", "timezoneId", version, "createdAt"
+      )
+      SELECT
+        ('S' || lpad(value::text, 25, '0'))::varchar(26),
+        ${ownerId},
+        ('C' || lpad(value::text, 25, '0'))::varchar(26),
+        ('R' || lpad(value::text, 25, '0'))::varchar(26),
+        CASE WHEN value = 500 THEN ${categoryId} ELSE NULL END,
+        0,
+        CASE
+          WHEN value = 500 THEN 'needle needle needle architecture planning'
+          WHEN value % 100 = 0 THEN 'needle architecture planning'
+          ELSE 'ordinary focus activity ' || value
+        END,
+        '{}'::jsonb,
+        now() - (value || ' seconds')::interval,
+        'UTC',
+        ('R' || lpad(value::text, 25, '0'))::varchar(26),
+        now()
+      FROM generate_series(1, 10000) value
+    `);
     await prisma.checkInTag.create({
       data: { checkInId: `C${'500'.padStart(25, '0')}`, tagId }
     });
@@ -132,6 +163,7 @@ integration('PostgreSQL full-text search', () => {
 
   afterAll(async () => {
     await prisma.checkInTag.deleteMany({ where: { checkIn: { ownerId } } });
+    await prisma.logSection.deleteMany({ where: { ownerId } });
     await prisma.checkInRevision.deleteMany({ where: { checkIn: { ownerId } } });
     await prisma.checkIn.deleteMany({ where: { ownerId } });
     await prisma.deviceRequestNonce.deleteMany({ where: { deviceId } });
@@ -141,7 +173,7 @@ integration('PostgreSQL full-text search', () => {
     await prisma.category.deleteMany({ where: { ownerId } });
     await prisma.device.deleteMany({ where: { ownerId } });
     await prisma.owner.delete({ where: { id: ownerId } });
-    await app.close();
+    if (app) await app.close();
   }, 60_000);
 
   it('ranks matches and applies tag/category/session filters', async () => {

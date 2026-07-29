@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ulid } from 'ulid';
 
 import { parseHistorySearch, searchCheckIns } from './check-in-search.js';
+import { materializeLogSections } from './category-inference.js';
 import { openDesktopDatabase, type DesktopDatabase } from './database.js';
 
 describe('SQLite FTS5 check-in search', () => {
@@ -37,9 +38,9 @@ describe('SQLite FTS5 check-in search', () => {
     database.prepare('INSERT INTO owners VALUES (?, ?, ?)').run(ownerId, now, now);
     database
       .prepare(
-        'INSERT INTO categories (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO categories (id, owner_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)'
       )
-      .run(categoryId, ownerId, 'Deep work', ulid(), now, now);
+      .run(categoryId, ownerId, 'deep work', 'deep work', ulid(), now, now);
     database
       .prepare(
         'INSERT INTO tags (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -80,13 +81,21 @@ describe('SQLite FTS5 check-in search', () => {
           'INSERT INTO check_in_revisions (id, check_in_id, body, operation_id, created_at) VALUES (?, ?, ?, ?, ?)'
         )
         .run(revisionId, checkInId, body, ulid(), now);
+      materializeLogSections(database!, {
+        ownerId,
+        checkInId,
+        revisionId,
+        body,
+        occurredAt: now,
+        timezoneId: 'UTC'
+      });
       if (filtered)
         database!
           .prepare('INSERT INTO check_in_tags (check_in_id, tag_id) VALUES (?, ?)')
           .run(checkInId, tagId);
       return checkInId;
     };
-    const strongest = insert('architecture architecture architecture planning', true);
+    const strongest = insert('<deep work> architecture architecture architecture planning', true);
     insert('architecture planning', false);
 
     const results = searchCheckIns(database, ownerId, {
@@ -127,6 +136,17 @@ describe('SQLite FTS5 check-in search', () => {
             ulid(),
             now
           );
+        materializeLogSections(database!, {
+          ownerId,
+          checkInId,
+          revisionId,
+          body:
+            index % 100 === 0
+              ? `needle architecture result ${index}`
+              : `ordinary focus activity ${index}`,
+          occurredAt: now,
+          timezoneId: 'UTC'
+        });
       }
     });
     transaction();

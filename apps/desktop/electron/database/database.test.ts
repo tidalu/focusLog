@@ -21,6 +21,7 @@ describe('desktop SQLite migrations', () => {
         'reminder_occurrences',
         'reminder_transitions',
         'check_ins',
+        'log_sections',
         'tags',
         'categories',
         'sync_operations',

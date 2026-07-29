@@ -6,8 +6,8 @@ import {
   dateTitle,
   delayLabel,
   durationLabel,
-  entryText,
   localDay,
+  newestHistoryFirst,
   periodFor,
   systemTimezone,
   timeLabel,
@@ -29,6 +29,8 @@ const quickFilters = [
   { label: 'Desktop', query: 'device:desktop' },
   { label: 'Android', query: 'device:android' }
 ] as const;
+
+const periodsNewestFirst = ['Evening', 'Afternoon', 'Morning'] as const;
 
 function monthDays(month: Date): Array<{ day: string; label: number; inMonth: boolean }> {
   const year = month.getFullYear();
@@ -84,7 +86,7 @@ export function HistoryPage({ searchRef }: HistoryPageProps): React.JSX.Element 
 
   const grouped = useMemo(() => {
     const result = new Map<string, HistoryItem[]>();
-    for (const item of items) {
+    for (const item of newestHistoryFirst(items)) {
       const period = periodFor(item.submittedAt);
       result.set(period, [...(result.get(period) ?? []), item]);
     }
@@ -207,7 +209,7 @@ export function HistoryPage({ searchRef }: HistoryPageProps): React.JSX.Element 
               <span>No entries match this day and filter.</span>
             </div>
           ) : (
-            ['Morning', 'Afternoon', 'Evening'].map((period) => {
+            periodsNewestFirst.map((period) => {
               const periodItems = grouped.get(period);
               if (!periodItems?.length) return null;
               return (
@@ -226,11 +228,25 @@ export function HistoryPage({ searchRef }: HistoryPageProps): React.JSX.Element 
                         <time dateTime={item.submittedAt}>{timeLabel(item.submittedAt)}</time>
                         <span className="category-orb" aria-hidden="true" />
                         <div className="journal-card-body">
-                          <div>
+                          <div className="journal-card-heading">
                             <strong>{categoryLabel(item.category)}</strong>
                             <span>{delayLabel(item.responseDelaySeconds)}</span>
                           </div>
-                          <p>{entryText(item.body)}</p>
+                          <div className="journal-card-sections">
+                            {item.sections.map((section) => (
+                              <section key={section.id} style={categoryStyle(section.path)}>
+                                <span>{categoryLabel(section.path)}</span>
+                                <p>{section.body || 'Empty journal section'}</p>
+                                {Object.keys(section.metadata).length > 0 && (
+                                  <small>
+                                    {Object.entries(section.metadata)
+                                      .map(([key, value]) => `${key}: ${value}`)
+                                      .join(' · ')}
+                                  </small>
+                                )}
+                              </section>
+                            ))}
+                          </div>
                           <footer>
                             <span>{item.device === 'android' ? 'Android' : 'Desktop'}</span>
                             {item.responseDelaySeconds != null &&

@@ -9,7 +9,7 @@ describe('journal category inference', () => {
 
   afterEach(() => database?.close());
 
-  it('creates categories from leading tokens and keeps the authored body intact', () => {
+  it('creates ordered hierarchical sections and keeps the authored body intact', () => {
     database = openDesktopDatabase(':memory:');
     const ownerId = ulid();
     const deviceId = ulid();
@@ -24,7 +24,7 @@ describe('journal category inference', () => {
     const created = createOfflineCheckIn(database, {
       ownerId,
       deviceId,
-      body: '<Study> Solved a sliding window problem.',
+      body: '<Study><Leetcode>\nSolved a sliding window problem.\n#difficulty=Hard\n\n<Sleep>\nSlept for eight hours.',
       submittedAt: now,
       timezoneId: 'UTC'
     });
@@ -32,13 +32,27 @@ describe('journal category inference', () => {
     expect(
       database
         .prepare(
-          'SELECT categories.name, check_in_revisions.body FROM check_ins JOIN categories ON categories.id = check_ins.category_id JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id WHERE check_ins.id = ?'
+          'SELECT categories.path, check_in_revisions.body FROM check_ins JOIN categories ON categories.id = check_ins.category_id JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id WHERE check_ins.id = ?'
         )
         .get(created.checkInId)
     ).toEqual({
-      name: 'study',
-      body: '<Study> Solved a sliding window problem.'
+      path: 'study/leetcode',
+      body: '<Study><Leetcode>\nSolved a sliding window problem.\n#difficulty=Hard\n\n<Sleep>\nSlept for eight hours.'
     });
+    expect(
+      database
+        .prepare(
+          'SELECT categories.path, log_sections.body, log_sections.metadata_json AS metadata FROM log_sections LEFT JOIN categories ON categories.id = log_sections.category_id WHERE log_sections.check_in_id = ? ORDER BY log_sections.position'
+        )
+        .all(created.checkInId)
+    ).toEqual([
+      {
+        path: 'study/leetcode',
+        body: 'Solved a sliding window problem.',
+        metadata: '{"difficulty":"Hard"}'
+      },
+      { path: 'sleep', body: 'Slept for eight hours.', metadata: '{}' }
+    ]);
 
     reviseOfflineCheckIn(database, {
       ownerId,

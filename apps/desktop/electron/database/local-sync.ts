@@ -1,6 +1,6 @@
 import { ulid } from 'ulid';
 
-import { inferredCategoryId } from './category-inference.js';
+import { materializeLogSections, sectionPayload } from './category-inference.js';
 import type { DesktopDatabase } from './database.js';
 
 function nextDeviceSequence(database: DesktopDatabase, ownerId: string, deviceId: string): number {
@@ -67,8 +67,8 @@ export function createOfflineCheckIn(
   const checkInId = ulid();
   const revisionId = ulid();
   const operationId = ulid();
+  const sections = sectionPayload(input.body);
   database.transaction(() => {
-    const categoryId = inferredCategoryId(database, input.ownerId, input.body, submittedAt);
     database
       .prepare(
         'INSERT INTO check_ins (id, owner_id, reminder_occurrence_id, focus_session_id, category_id, current_revision_id, submitted_at, timezone_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -78,7 +78,7 @@ export function createOfflineCheckIn(
         input.ownerId,
         input.reminderOccurrenceId ?? null,
         input.focusSessionId ?? null,
-        categoryId,
+        null,
         revisionId,
         submittedAt,
         timezoneId,
@@ -91,6 +91,15 @@ export function createOfflineCheckIn(
         'INSERT INTO check_in_revisions (id, check_in_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
       .run(revisionId, checkInId, input.body.trim(), input.deviceId, operationId, submittedAt);
+    materializeLogSections(database, {
+      ownerId: input.ownerId,
+      checkInId,
+      revisionId,
+      body: input.body,
+      occurredAt: submittedAt,
+      timezoneId,
+      sections
+    });
     queueSyncOperation(database, {
       ownerId: input.ownerId,
       deviceId: input.deviceId,
@@ -102,6 +111,7 @@ export function createOfflineCheckIn(
         body: input.body.trim(),
         submittedAt,
         timezoneId,
+        sections,
         reminderCompletion: input.reminderCompletion ?? false,
         ...(input.reminderOccurrenceId ? { reminderOccurrenceId: input.reminderOccurrenceId } : {})
       },
@@ -125,8 +135,8 @@ export function reviseOfflineCheckIn(
   const createdAt = input.createdAt ?? new Date().toISOString();
   const revisionId = ulid();
   const operationId = ulid();
+  const sections = sectionPayload(input.body);
   database.transaction(() => {
-    const categoryId = inferredCategoryId(database, input.ownerId, input.body, createdAt);
     database
       .prepare(
         'INSERT INTO check_in_revisions (id, check_in_id, parent_revision_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -142,9 +152,23 @@ export function reviseOfflineCheckIn(
       );
     database
       .prepare(
-        'UPDATE check_ins SET category_id = ?, current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
+        'UPDATE check_ins SET current_revision_id = ?, version = ?, updated_at = ? WHERE id = ?'
       )
-      .run(categoryId, revisionId, revisionId, createdAt, input.checkInId);
+      .run(revisionId, revisionId, createdAt, input.checkInId);
+    const timezoneId = (
+      database.prepare('SELECT timezone_id FROM check_ins WHERE id = ?').get(input.checkInId) as {
+        timezone_id: string;
+      }
+    ).timezone_id;
+    materializeLogSections(database, {
+      ownerId: input.ownerId,
+      checkInId: input.checkInId,
+      revisionId,
+      body: input.body,
+      occurredAt: createdAt,
+      timezoneId,
+      sections
+    });
     queueSyncOperation(database, {
       ownerId: input.ownerId,
       deviceId: input.deviceId,
@@ -152,7 +176,7 @@ export function reviseOfflineCheckIn(
       entityId: input.checkInId,
       kind: 'check_in.revise',
       baseVersion: current.current_revision_id,
-      payload: { revisionId, body: input.body.trim(), createdAt },
+      payload: { revisionId, body: input.body.trim(), createdAt, sections },
       occurredAt: createdAt,
       operationId
     });

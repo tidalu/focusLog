@@ -50,7 +50,10 @@ export const categoryStyle = (category: string): CSSProperties =>
 
 export function categoryLabel(category: string): string {
   if (category === 'Uncategorized') return category;
-  return category.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase());
+  return category
+    .split('/')
+    .map((segment) => segment.replace(/\b\p{L}/gu, (letter) => letter.toLocaleUpperCase()))
+    .join(' / ');
 }
 
 export function entryText(body: string): string {
@@ -76,6 +79,15 @@ export function periodFor(instant: string, timezoneId = systemTimezone): string 
   if (hour < 12) return 'Morning';
   if (hour < 17) return 'Afternoon';
   return 'Evening';
+}
+
+export function newestHistoryFirst<T extends { id: string; submittedAt: string }>(
+  items: readonly T[]
+): T[] {
+  return [...items].sort(
+    (left, right) =>
+      right.submittedAt.localeCompare(left.submittedAt) || right.id.localeCompare(left.id)
+  );
 }
 
 export function durationLabel(minutes: number): string {

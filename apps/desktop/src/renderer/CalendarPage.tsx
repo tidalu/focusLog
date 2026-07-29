@@ -243,7 +243,18 @@ export function CalendarPage(): React.JSX.Element {
                     <i />
                     <div>
                       <strong>{categoryLabel(entry.category ?? entry.title)}</strong>
-                      <p>{entryText(entry.detail)}</p>
+                      {entry.sections?.length ? (
+                        <div className="drawer-sections">
+                          {entry.sections.map((section) => (
+                            <section key={section.id} style={categoryStyle(section.path)}>
+                              <b>{categoryLabel(section.path)}</b>
+                              <p>{section.body || 'Empty journal section'}</p>
+                            </section>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>{entryText(entry.detail)}</p>
+                      )}
                       <span>
                         {entry.device
                           ? entry.device === 'android'

@@ -1,6 +1,6 @@
 import { ulid } from 'ulid';
 
-import { inferredCategoryId } from '../database/category-inference.js';
+import { materializeLogSections, sectionPayload } from '../database/category-inference.js';
 import type { DesktopDatabase } from '../database/database.js';
 import { queueSyncOperation } from '../database/local-sync.js';
 import { transitionReminder, type ReminderState } from './state.js';
@@ -179,8 +179,8 @@ export function completeReminderOffline(
   const transitionId = ulid();
   const checkInId = ulid();
   const revisionId = ulid();
+  const sections = sectionPayload(body);
   database.transaction(() => {
-    const categoryId = inferredCategoryId(database, input.ownerId, body, occurredAt);
     database
       .prepare(
         "UPDATE reminder_occurrences SET state = 'COMPLETED', resolved_at = ?, version = ?, updated_at = ? WHERE id = ?"
@@ -216,7 +216,7 @@ export function completeReminderOffline(
         input.ownerId,
         input.occurrenceId,
         occurrence.focus_session_id,
-        categoryId,
+        null,
         revisionId,
         occurredAt,
         occurrence.timezone_id,
@@ -229,6 +229,15 @@ export function completeReminderOffline(
         'INSERT INTO check_in_revisions (id, check_in_id, body, author_device_id, operation_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
       .run(revisionId, checkInId, body, input.deviceId, operationId, occurredAt);
+    materializeLogSections(database, {
+      ownerId: input.ownerId,
+      checkInId,
+      revisionId,
+      body,
+      occurredAt,
+      timezoneId: occurrence.timezone_id,
+      sections
+    });
     queueSyncOperation(database, {
       ownerId: input.ownerId,
       deviceId: input.deviceId,
@@ -236,7 +245,7 @@ export function completeReminderOffline(
       entityId: input.occurrenceId,
       kind: 'reminder.complete',
       baseVersion: occurrence.version,
-      payload: { transitionId, checkInId, revisionId, body, completedAt: occurredAt },
+      payload: { transitionId, checkInId, revisionId, body, completedAt: occurredAt, sections },
       occurredAt,
       operationId
     });

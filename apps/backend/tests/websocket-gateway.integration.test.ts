@@ -173,6 +173,7 @@ integration('authenticated WebSocket gateway', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await prisma.logSection.deleteMany({ where: { ownerId: owner.ownerId } });
     await prisma.checkInRevision.deleteMany({ where: { checkIn: { ownerId: owner.ownerId } } });
     await prisma.checkIn.deleteMany({ where: { ownerId: owner.ownerId } });
     await prisma.conflict.deleteMany({ where: { ownerId: owner.ownerId } });

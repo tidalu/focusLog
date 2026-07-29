@@ -81,6 +81,7 @@ model Owner {
   checkIns            CheckIn[]
   tags                Tag[]
   categories          Category[]
+  logSections         LogSection[]
   syncOperations      SyncOperation[]
   syncCursors         SyncCursor[]
   syncState           OwnerSyncState?
@@ -268,6 +269,7 @@ model CheckIn {
   focusSession       FocusSession?       @relation(fields: [focusSessionId], references: [id], onDelete: SetNull)
   category           Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   revisions          CheckInRevision[]
+  sections           LogSection[]
   tags               CheckInTag[]
 
   @@index([ownerId, submittedAt])
@@ -286,7 +288,8 @@ model CheckInRevision {
   createdAt        DateTime  @default(now()) @db.Timestamptz(3)
   deletedAt        DateTime? @db.Timestamptz(3)
 
-  checkIn CheckIn @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  checkIn  CheckIn      @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  sections LogSection[]
 
   @@index([checkInId, createdAt])
   @@map("check_in_revisions")
@@ -313,19 +316,52 @@ model Tag {
 model Category {
   id        String    @id @db.VarChar(26)
   ownerId   String    @db.VarChar(26)
+  parentId  String?   @db.VarChar(26)
   name      String    @db.VarChar(80)
+  path      String    @db.VarChar(500)
+  depth     Int       @default(1)
   color     String?   @db.VarChar(32)
   version   String    @db.VarChar(26)
   deletedAt DateTime? @db.Timestamptz(3)
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
 
-  owner    Owner     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  owner    Owner        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  parent   Category?    @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[]   @relation("CategoryTree")
   checkIns CheckIn[]
+  sections LogSection[]
 
-  @@unique([ownerId, name])
+  @@unique([ownerId, path])
   @@index([ownerId, deletedAt])
+  @@index([ownerId, parentId, deletedAt])
   @@map("categories")
+}
+
+model LogSection {
+  id         String   @id @db.VarChar(26)
+  ownerId    String   @db.VarChar(26)
+  checkInId  String   @db.VarChar(26)
+  revisionId String   @db.VarChar(26)
+  categoryId String?  @db.VarChar(26)
+  position   Int
+  body       String   @db.Text
+  metadata   Json     @db.JsonB
+  occurredAt DateTime @db.Timestamptz(3)
+  timezoneId String   @db.VarChar(64)
+  version    String   @db.VarChar(26)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  owner    Owner           @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  checkIn  CheckIn         @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  revision CheckInRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  category Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([revisionId, position])
+  @@index([checkInId, revisionId, position])
+  @@index([ownerId, occurredAt])
+  @@index([categoryId, occurredAt])
+  @@map("log_sections")
 }
 
 model CheckInTag {

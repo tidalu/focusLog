@@ -166,6 +166,7 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
 
   afterAll(async () => {
     if (prisma) {
+      await prisma.logSection.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.checkInRevision.deleteMany({ where: { checkIn: { ownerId: owner.ownerId } } });
       await prisma.checkIn.deleteMany({ where: { ownerId: owner.ownerId } });
       await prisma.reminderTransition.deleteMany({ where: { ownerId: owner.ownerId } });
@@ -191,7 +192,7 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
     const offline = createOfflineCheckIn(desktopDatabase, {
       ownerId: owner.ownerId,
       deviceId: owner.deviceId,
-      body: '<work> Desktop check-in created while the backend is unavailable',
+      body: '<work><focuslog>\nDesktop check-in created while the backend is unavailable\n\n<sleep>\nRecovered after a long rest',
       timezoneId: 'UTC'
     });
 
@@ -270,13 +271,29 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
     expect(
       await prisma.checkIn.findUnique({
         where: { id: offline.checkInId },
-        include: { revisions: true, category: true }
+        include: {
+          revisions: true,
+          category: true,
+          sections: { include: { category: true }, orderBy: { position: 'asc' } }
+        }
       }),
       retryFailure?.message
     ).toMatchObject({
       id: offline.checkInId,
-      category: { name: 'work' },
-      revisions: [{ body: '<work> Desktop check-in created while the backend is unavailable' }]
+      category: { path: 'work/focuslog' },
+      revisions: [
+        {
+          body: '<work><focuslog>\nDesktop check-in created while the backend is unavailable\n\n<sleep>\nRecovered after a long rest'
+        }
+      ],
+      sections: [
+        {
+          position: 0,
+          body: 'Desktop check-in created while the backend is unavailable',
+          category: { path: 'work/focuslog' }
+        },
+        { position: 1, body: 'Recovered after a long rest', category: { path: 'sleep' } }
+      ]
     });
     const duplicate = await ownerTransport.push(
       desktopDatabase
@@ -292,10 +309,20 @@ integration('real offline, cross-device, conflict, and tombstone synchronization
     expect(
       androidDatabase
         .prepare(
-          'SELECT check_ins.id, categories.name FROM check_ins LEFT JOIN categories ON categories.id = check_ins.category_id WHERE check_ins.id = ?'
+          'SELECT check_ins.id, categories.path AS name FROM check_ins LEFT JOIN categories ON categories.id = check_ins.category_id WHERE check_ins.id = ?'
         )
         .get(offline.checkInId)
-    ).toMatchObject({ id: offline.checkInId, name: 'work' });
+    ).toMatchObject({ id: offline.checkInId, name: 'work/focuslog' });
+    expect(
+      desktopDatabase
+        .prepare(
+          'SELECT categories.path, log_sections.body FROM log_sections LEFT JOIN categories ON categories.id = log_sections.category_id WHERE log_sections.check_in_id = ? ORDER BY log_sections.position'
+        )
+        .all(offline.checkInId)
+    ).toMatchObject([
+      { path: 'work/focuslog', body: 'Desktop check-in created while the backend is unavailable' },
+      { path: 'sleep', body: 'Recovered after a long rest' }
+    ]);
 
     const androidCheckIn = createOfflineCheckIn(androidDatabase, {
       ownerId: owner.ownerId,

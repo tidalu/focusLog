@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { openDesktopDatabase } from '../database/database.js';
+import { materializeLogSections } from '../database/category-inference.js';
 import { ReportingService } from './reporting-service.js';
 
 const timestamp = '2026-03-28T20:00:00.000Z';
@@ -69,6 +70,14 @@ function insertCheckIn(
        VALUES (?, ?, ?, 'device', ?, ?)`
     )
     .run(revisionId, id, body, `${id}-operation`, submittedAt);
+  materializeLogSections(database, {
+    ownerId: 'owner',
+    checkInId: id,
+    revisionId,
+    body,
+    occurredAt: submittedAt,
+    timezoneId: 'Europe/Warsaw'
+  });
 }
 
 describe('desktop reporting', () => {

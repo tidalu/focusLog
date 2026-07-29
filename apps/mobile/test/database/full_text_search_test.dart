@@ -28,8 +28,16 @@ void main() {
       final modeId = generateSyncId();
       final sessionId = generateSyncId();
       await database.customStatement(
-          'INSERT INTO categories (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [categoryId, ownerId, 'Deep work', generateSyncId(), now, now]);
+          'INSERT INTO categories (id, owner_id, name, path, depth, version, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+          [
+            categoryId,
+            ownerId,
+            'deep work',
+            'deep work',
+            generateSyncId(),
+            now,
+            now
+          ]);
       await database.customStatement(
           'INSERT INTO tags (id, owner_id, name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
           [tagId, ownerId, 'Architecture', generateSyncId(), now, now]);
@@ -60,6 +68,21 @@ void main() {
                 revisionId,
                 encodedNow,
                 encodedNow
+              ]);
+          batch.customStatement(
+              "INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, '{}', ?, 'UTC', ?, ?)",
+              [
+                generateSyncId(),
+                ownerId,
+                checkInId,
+                revisionId,
+                filtered ? categoryId : null,
+                index % 100 == 0
+                    ? 'needle architecture planning $index'
+                    : 'ordinary focus activity $index',
+                encodedNow,
+                revisionId,
+                encodedNow,
               ]);
           batch.customStatement(
               'INSERT INTO check_in_revisions (id, check_in_id, body, operation_id, created_at) VALUES (?, ?, ?, ?, ?)',

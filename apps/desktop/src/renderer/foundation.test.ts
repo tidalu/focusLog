@@ -70,12 +70,29 @@ describe('desktop foundation', () => {
     expect(overlaySource).not.toContain('Navigation');
   });
 
+  it('generates syntactically valid reminder overlay JavaScript', () => {
+    const mainSource = readFileSync(resolve(import.meta.dirname, '../../electron/main.ts'), 'utf8');
+    const overlaySource = mainSource.slice(
+      mainSource.indexOf('const html = `<!doctype html>'),
+      mainSource.indexOf('overlay.once')
+    );
+    const rawScript = /<script>([\s\S]*?)<\/script>/.exec(overlaySource)?.[1];
+
+    expect(rawScript).toBeDefined();
+    const scriptWithId = rawScript!.replace('${JSON.stringify(occurrenceId)}', '"test-id"');
+    const cookedScript = Function(`return \`${scriptWithId}\`;`)() as string;
+    const executableScript = cookedScript.replaceAll(String.fromCharCode(10), String.raw`\n`);
+
+    expect(() => Function(executableScript)).not.toThrow();
+    expect(executableScript).toContain('button.disabled=count<20');
+  });
+
   it('uses journal timelines, analytics dashboards, and an in-place calendar drawer', () => {
     const historySource = readFileSync(resolve(import.meta.dirname, 'HistoryPage.tsx'), 'utf8');
     const reportsSource = readFileSync(resolve(import.meta.dirname, 'ReportsPage.tsx'), 'utf8');
     const calendarSource = readFileSync(resolve(import.meta.dirname, 'CalendarPage.tsx'), 'utf8');
 
-    expect(historySource).toContain("['Morning', 'Afternoon', 'Evening']");
+    expect(historySource).toContain("['Evening', 'Afternoon', 'Morning']");
     expect(historySource).toContain('category:study');
     expect(historySource).toContain('journal-card');
     expect(reportsSource).toContain('<h2>Categories</h2>');
@@ -90,7 +107,7 @@ describe('desktop foundation', () => {
   it('offers inferred-category completion without a category management form', () => {
     const rendererSource = readFileSync(resolve(import.meta.dirname, 'App.tsx'), 'utf8');
 
-    expect(rendererSource).toContain('Begin with <code>&lt;category&gt;</code>');
+    expect(rendererSource).toContain('<code>&lt;study&gt;&lt;leetcode&gt;</code>');
     expect(rendererSource).toContain('categorySuggestions');
     expect(rendererSource).not.toContain('Create category');
     expect(rendererSource).not.toContain('Manage categories');

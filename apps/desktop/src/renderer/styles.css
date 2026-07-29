@@ -1554,7 +1554,7 @@ textarea {
   margin-top: 2px;
 }
 
-.journal-card-body > div,
+.journal-card-heading,
 .journal-card-body footer {
   display: flex;
   align-items: center;
@@ -1569,7 +1569,7 @@ textarea {
   letter-spacing: 0.035em;
 }
 
-.journal-card-body > div > span,
+.journal-card-heading > span,
 .journal-card-body footer {
   color: var(--subtle);
   font-size: 9px;
@@ -1580,6 +1580,40 @@ textarea {
   color: var(--text);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.journal-card-sections {
+  display: grid;
+  margin: 8px 0 12px;
+}
+
+.journal-card-sections section {
+  --category-color: hsl(calc(var(--category-tone, 5) * 31 + 188) 72% 57%);
+  padding: 10px 0;
+  border-top: 1px solid var(--journal-line);
+}
+
+.journal-card-sections section:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.journal-card-sections section > span {
+  color: var(--category-color);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.035em;
+}
+
+.journal-card-sections section p {
+  margin: 5px 0 0;
+}
+
+.journal-card-sections section small {
+  display: block;
+  margin-top: 7px;
+  color: var(--subtle);
+  font-size: 9px;
 }
 
 .journal-card-body footer {
@@ -2343,6 +2377,22 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.drawer-sections section {
+  --category-color: hsl(calc(var(--category-tone, 5) * 31 + 188) 72% 57%);
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--journal-line);
+}
+
+.drawer-sections section:first-child {
+  border-top: 0;
+}
+
+.drawer-sections section b {
+  color: var(--category-color);
+  font-size: 9px;
 }
 
 .drawer-timeline article div > span {

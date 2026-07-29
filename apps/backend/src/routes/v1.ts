@@ -530,6 +530,7 @@ export function registerV1Routes(
         where: { ownerId: device.ownerId, deletedAt: null },
         include: {
           revisions: { orderBy: { createdAt: 'desc' }, take: 1 },
+          sections: { include: { category: true }, orderBy: { position: 'asc' } },
           tags: { include: { tag: true } }
         },
         orderBy: { submittedAt: 'desc' }
@@ -546,6 +547,7 @@ export function registerV1Routes(
         );
       const checkInId = ulid();
       const revisionId = ulid();
+      const syncService = new SyncService(prisma);
       return reply.status(201).send(
         await prisma.$transaction(async (tx) => {
           await tx.checkIn.create({
@@ -554,14 +556,14 @@ export function registerV1Routes(
               ownerId: device.ownerId,
               reminderOccurrenceId: input.reminderOccurrenceId,
               focusSessionId: input.focusSessionId,
-              categoryId: input.categoryId,
+              categoryId: null,
               currentRevisionId: revisionId,
               submittedAt: input.submittedAt,
               timezoneId: input.timezoneId,
               version: ulid()
             }
           });
-          return tx.checkInRevision.create({
+          const revision = await tx.checkInRevision.create({
             data: {
               id: revisionId,
               checkInId,
@@ -570,6 +572,17 @@ export function registerV1Routes(
               operationId: ulid()
             }
           });
+          const categoryId = await syncService.materializeLogSections(tx, {
+            ownerId: device.ownerId,
+            checkInId,
+            revisionId,
+            body: input.body,
+            occurredAt: input.submittedAt,
+            timezoneId: input.timezoneId
+          });
+          if (categoryId)
+            await tx.checkIn.update({ where: { id: checkInId }, data: { categoryId } });
+          return revision;
         })
       );
     });
@@ -615,13 +628,28 @@ export function registerV1Routes(
           )`
         : Prisma.empty;
       const categoryFilter = input.categoryId
-        ? Prisma.sql`AND check_in."categoryId" = ${input.categoryId}`
+        ? Prisma.sql`AND (
+            section_category.path = (SELECT path FROM "categories" WHERE id = ${input.categoryId})
+            OR section_category.path LIKE (
+              (SELECT path FROM "categories" WHERE id = ${input.categoryId}) || '/%'
+            )
+          )`
         : Prisma.empty;
       const sessionFilter = input.sessionId
         ? Prisma.sql`AND check_in."focusSessionId" = ${input.sessionId}`
         : Prisma.empty;
       const rows = await prisma.$queryRaw<
-        Array<{ id: string; body: string; submittedAt: Date; rank: number }>
+        Array<{
+          id: string;
+          body: string;
+          submittedAt: Date;
+          rank: number;
+          sectionId: string;
+          sectionPath: string;
+          sectionBody: string;
+          metadata: Prisma.JsonValue;
+          position: number;
+        }>
       >(Prisma.sql`
         WITH search_query AS (
           SELECT websearch_to_tsquery('simple', ${input.query}) AS value
@@ -630,9 +658,14 @@ export function registerV1Routes(
           check_in.id,
           revision.body,
           check_in."submittedAt",
+          section.id AS "sectionId",
+          coalesce(section_category.path, 'Uncategorized') AS "sectionPath",
+          section.body AS "sectionBody",
+          section.metadata,
+          section.position,
           ts_rank_cd(
-            revision."searchDocument"
-              || setweight(to_tsvector('simple', coalesce(category.name, '')), 'B')
+            setweight(to_tsvector('simple', section.body), 'A')
+              || setweight(to_tsvector('simple', coalesce(section_category.path, '')), 'B')
               || setweight(to_tsvector('simple', coalesce(tag_names.value, '')), 'B')
               || setweight(to_tsvector('simple', coalesce(session.name, '')), 'C'),
             search_query.value,
@@ -641,8 +674,10 @@ export function registerV1Routes(
         FROM "check_ins" check_in
         JOIN "check_in_revisions" revision
           ON revision.id = check_in."currentRevisionId"
-        LEFT JOIN "categories" category
-          ON category.id = check_in."categoryId" AND category."deletedAt" IS NULL
+        JOIN "log_sections" section
+          ON section."revisionId" = check_in."currentRevisionId"
+        LEFT JOIN "categories" section_category
+          ON section_category.id = section."categoryId" AND section_category."deletedAt" IS NULL
         LEFT JOIN "focus_sessions" session
           ON session.id = check_in."focusSessionId" AND session."deletedAt" IS NULL
         LEFT JOIN LATERAL (
@@ -656,22 +691,61 @@ export function registerV1Routes(
           AND check_in."deletedAt" IS NULL
           AND revision."deletedAt" IS NULL
           AND (
-            revision."searchDocument"
-              || setweight(to_tsvector('simple', coalesce(category.name, '')), 'B')
+            setweight(to_tsvector('simple', section.body), 'A')
+              || setweight(to_tsvector('simple', coalesce(section_category.path, '')), 'B')
               || setweight(to_tsvector('simple', coalesce(tag_names.value, '')), 'B')
               || setweight(to_tsvector('simple', coalesce(session.name, '')), 'C')
           ) @@ search_query.value
           ${tagFilter}
           ${categoryFilter}
           ${sessionFilter}
-        ORDER BY rank DESC, check_in."submittedAt" DESC, check_in.id
+        ORDER BY rank DESC, check_in."submittedAt" DESC, check_in.id, section.position
         LIMIT ${input.limit}
       `);
       return {
-        results: rows.map((row) => ({
-          ...row,
-          rank: Number(row.rank)
-        }))
+        results: Array.from(
+          rows
+            .reduce<
+              Map<
+                string,
+                {
+                  id: string;
+                  body: string;
+                  submittedAt: Date;
+                  rank: number;
+                  sections: Array<{
+                    id: string;
+                    path: string;
+                    categoryPath: string[];
+                    body: string;
+                    metadata: Prisma.JsonValue;
+                    position: number;
+                  }>;
+                }
+              >
+            >((grouped, row) => {
+              const current = grouped.get(row.id) ?? {
+                id: row.id,
+                body: row.body,
+                submittedAt: row.submittedAt,
+                rank: Number(row.rank),
+                sections: []
+              };
+              current.rank = Math.max(current.rank, Number(row.rank));
+              const path = row.sectionPath;
+              current.sections.push({
+                id: row.sectionId,
+                path,
+                categoryPath: path === 'Uncategorized' ? [] : path.split('/'),
+                body: row.sectionBody,
+                metadata: row.metadata,
+                position: row.position
+              });
+              grouped.set(row.id, current);
+              return grouped;
+            }, new Map())
+            .values()
+        )
       };
     });
 
@@ -792,7 +866,10 @@ export function registerV1Routes(
             submittedAt: { gte: bounds.start, lt: bounds.end }
           },
           include: {
-            category: { select: { name: true } },
+            sections: {
+              include: { category: { select: { path: true } } },
+              orderBy: { position: 'asc' }
+            },
             revisions: {
               where: { deletedAt: null },
               orderBy: { createdAt: 'desc' },
@@ -874,21 +951,48 @@ export function registerV1Routes(
       );
       const categories = Object.entries(
         checkIns.reduce<Record<string, number>>((all, item) => {
-          const name = item.category?.name ?? 'Uncategorized';
-          all[name] = (all[name] ?? 0) + 1;
+          for (const section of item.sections.filter(
+            (candidate) => candidate.revisionId === item.currentRevisionId
+          )) {
+            const path = section.category?.path ?? 'Uncategorized';
+            const segments = path === 'Uncategorized' ? [] : path.split('/');
+            if (!segments.length) {
+              all.Uncategorized = (all.Uncategorized ?? 0) + 1;
+              continue;
+            }
+            for (let depth = 1; depth <= segments.length; depth += 1) {
+              const categoryPath = segments.slice(0, depth).join('/');
+              all[categoryPath] = (all[categoryPath] ?? 0) + 1;
+            }
+          }
           return all;
         }, {})
       ).map(([name, count]) => ({ name, count }));
       const totalIntervals = completedIntervals + missedIntervals;
       const timeline = [
-        ...checkIns.map((item) => ({
-          id: item.id,
-          kind: 'CHECK_IN',
-          occurredAt: item.submittedAt,
-          title: `Check-in · ${item.category?.name ?? 'Uncategorized'}`,
-          detail: item.revisions[0]?.body ?? '',
-          originalTimezoneId: item.timezoneId
-        })),
+        ...checkIns.map((item) => {
+          const sections = item.sections
+            .filter((section) => section.revisionId === item.currentRevisionId)
+            .map((section) => ({
+              id: section.id,
+              path: section.category?.path ?? 'Uncategorized',
+              body: section.body,
+              metadata: section.metadata,
+              position: section.position
+            }));
+          return {
+            id: item.id,
+            kind: 'CHECK_IN',
+            occurredAt: item.submittedAt,
+            title: `Check-in · ${sections[0]?.path ?? 'Uncategorized'}`,
+            detail: sections
+              .map((section) => section.body)
+              .filter(Boolean)
+              .join('\n\n'),
+            sections,
+            originalTimezoneId: item.timezoneId
+          };
+        }),
         ...occurrences.map((item) => ({
           id: item.id,
           kind: 'REMINDER',
@@ -1070,6 +1174,7 @@ export function registerV1Routes(
       await prisma.$transaction(
         async (tx) => {
           await tx.checkInTag.deleteMany({ where: { checkIn: { ownerId } } });
+          await tx.logSection.deleteMany({ where: { ownerId } });
           await tx.checkInRevision.deleteMany({ where: { checkIn: { ownerId } } });
           await tx.checkIn.deleteMany({ where: { ownerId } });
           await tx.reminderTransition.deleteMany({ where: { ownerId } });

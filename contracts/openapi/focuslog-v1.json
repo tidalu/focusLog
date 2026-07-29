@@ -469,6 +469,25 @@
           "occurredAt": { "type": "string", "format": "date-time" }
         }
       },
+      "LogSection": {
+        "type": "object",
+        "required": ["id", "path", "categoryPath", "body", "metadata", "position"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Id" },
+          "path": { "type": "string", "maxLength": 500 },
+          "categoryPath": {
+            "type": "array",
+            "maxItems": 16,
+            "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+          },
+          "body": { "type": "string" },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "position": { "type": "integer", "minimum": 0 }
+        }
+      },
       "SyncPushRequest": {
         "type": "object",
         "required": ["operations"],
@@ -483,12 +502,16 @@
       },
       "SearchResult": {
         "type": "object",
-        "required": ["id", "body", "submittedAt", "rank"],
+        "required": ["id", "body", "submittedAt", "rank", "sections"],
         "properties": {
           "id": { "$ref": "#/components/schemas/Id" },
           "body": { "type": "string" },
           "submittedAt": { "type": "string", "format": "date-time" },
-          "rank": { "type": "number" }
+          "rank": { "type": "number" },
+          "sections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LogSection" }
+          }
         }
       },
       "SearchResponse": {
