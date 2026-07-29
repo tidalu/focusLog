@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "seed": "focuslog-phase3-f-200k-v1",
+  "logCount": 2000,
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "timingsMs": {
+    "startupAndMigration": 8.87,
+    "syntheticLogGenerationAndInsert": 341.29,
+    "chunkGenerationIndexingAndVectorPersistence": 1497.16,
+    "factBatchingAndGraphThroughput": 136.73,
+    "semanticHybridFilteredQueries": 19.74,
+    "stalenessPropagation": 8.31,
+    "incrementalEditReindex": 4.67,
+    "deletionCleanup": 4.14,
+    "rendererSafeProjection": 5.25,
+    "restartReopenAndInitialize": 31.47
+  },
+  "memory": {
+    "rssBytes": 85897216,
+    "heapUsedBytes": 19311424
+  },
+  "database": {
+    "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-kVDhis\\phase3-200k.sqlite",
+    "bytes": 5345280
+  },
+  "counts": {
+    "logs": 2000,
+    "chunks": 2000,
+    "activeVectors": 1998,
+    "facts": 3,
+    "graphNodes": 6,
+    "graphEdges": 3,
+    "staleMemory": 2,
+    "logsAfterReopen": 2000
+  },
+  "thresholds": {
+    "startupAndMigration": 5000,
+    "syntheticLogGenerationAndInsert": 90000,
+    "chunkGenerationIndexingAndVectorPersistence": 180000,
+    "semanticHybridFilteredQueries": 3000,
+    "restartReopenAndInitialize": 5000
+  },
+  "queryPlans": [
+    {
+      "name": "broad-local-memory",
+      "items": 2,
+      "staleDisclosure": false,
+      "exclusionReasons": []
+    },
+    {
+      "name": "focused-evidence",
+      "items": 15,
+      "staleDisclosure": false,
+      "exclusionReasons": [
+        "Excluded raw_log:log-000335 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-000167 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-001931 because it exceeded the remaining token budget."
+      ]
+    }
+  ],
+  "security": {
+    "secretFreeDiagnostics": true,
+    "playgroundExcluded": true,
+    "deletedExcluded": true,
+    "noGenerationModelCall": true
+  }
+}

@@ -1,0 +1,23 @@
+packages:
+  - apps/backend
+  - apps/desktop
+  - packages/*
+
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - electron
+  - esbuild
+  - prisma
+  - better-sqlite3
+  - better-sqlite3-multiple-ciphers
+  - electron-winstaller
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  electron: true
+  esbuild: true
+  prisma: true
+  better-sqlite3: true
+  electron-winstaller: true
+  better-sqlite3-multiple-ciphers: true

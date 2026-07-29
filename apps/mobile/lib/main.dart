@@ -11,6 +11,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'ai/mobile_ai_analysis_screen.dart';
+import 'ai/mobile_ai_execution_adapter.dart';
+import 'ai/mobile_ai_memory_screen.dart';
+import 'ai/mobile_ai_playground_screen.dart';
+import 'ai/mobile_ai_repository.dart';
+import 'ai/mobile_ai_security_screen.dart';
 import 'data/database/app_database.dart';
 import 'data/journal_category.dart';
 import 'data/mobile_repository.dart';
@@ -22,6 +28,7 @@ import 'sync/sync_worker.dart';
 import 'sync/websocket_client.dart';
 import 'security/encrypted_backup.dart';
 import 'security/permanent_deletion.dart';
+import 'widgets/widget_snapshot.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +37,9 @@ Future<void> main() async {
   final database = AppDatabase.encrypted(databaseKey);
   final identity = await DeviceIdentityService().loadOrCreate();
   final repository = FocusLogRepository(database, identity);
+  final aiRepository = MobileAIRepository(database, identity);
+  await MobileAIExecutionAdapter(repository: aiRepository)
+      .recoverAfterColdStart(reason: 'process-start');
   await repository.ensureIdentity();
   await repository.recoverOverdueReminders(reason: 'process-start');
   final scheduler = AndroidReminderScheduler(FlutterLocalNotificationsPlugin());
@@ -38,14 +48,26 @@ Future<void> main() async {
     await scheduler.schedule(reminder.id, reminder.dueAt);
   }
   await scheduler.recoverAfterStartup();
-  runApp(FocusLogApp(repository: repository, scheduler: scheduler));
+  final widgetPublisher = WidgetSnapshotPublisher(repository);
+  await widgetPublisher.refresh(reason: 'application-start');
+  runApp(FocusLogApp(
+      repository: repository,
+      aiRepository: aiRepository,
+      scheduler: scheduler,
+      widgetPublisher: widgetPublisher));
 }
 
 class FocusLogApp extends StatelessWidget {
   const FocusLogApp(
-      {super.key, required this.repository, required this.scheduler});
+      {super.key,
+      required this.repository,
+      required this.aiRepository,
+      required this.scheduler,
+      required this.widgetPublisher});
   final FocusLogRepository repository;
+  final MobileAIRepository aiRepository;
   final ReminderScheduler scheduler;
+  final WidgetSnapshotPublisher widgetPublisher;
 
   @override
   Widget build(BuildContext context) => DynamicColorBuilder(
@@ -91,7 +113,11 @@ class FocusLogApp extends StatelessWidget {
                 ColorScheme.fromSeed(
                     seedColor: seed, brightness: Brightness.dark)),
             themeMode: ThemeMode.system,
-            home: FocusLogHome(repository: repository, scheduler: scheduler),
+            home: FocusLogHome(
+                repository: repository,
+                aiRepository: aiRepository,
+                scheduler: scheduler,
+                widgetPublisher: widgetPublisher),
           );
         },
       );
@@ -99,9 +125,15 @@ class FocusLogApp extends StatelessWidget {
 
 class FocusLogHome extends StatefulWidget {
   const FocusLogHome(
-      {super.key, required this.repository, required this.scheduler});
+      {super.key,
+      required this.repository,
+      required this.aiRepository,
+      required this.scheduler,
+      required this.widgetPublisher});
   final FocusLogRepository repository;
+  final MobileAIRepository aiRepository;
   final ReminderScheduler scheduler;
+  final WidgetSnapshotPublisher widgetPublisher;
 
   @override
   State<FocusLogHome> createState() => _FocusLogHomeState();
@@ -114,13 +146,27 @@ class _FocusLogHomeState extends State<FocusLogHome>
   bool _reminderVisible = false;
   StreamSubscription<String>? _notificationSubscription;
   FocusLogWebSocketClient? _websocket;
+  late final MobileAIExecutionAdapter _aiExecution;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _aiExecution = MobileAIExecutionAdapter(repository: widget.aiRepository);
     _notificationSubscription =
         widget.scheduler.notificationTaps.listen(_openReminder);
+    const widgetChannel = MethodChannel('focuslog/widget');
+    widgetChannel.setMethodCallHandler((call) async {
+      if (call.method == 'quickAdd' && mounted) {
+        setState(() => _index = 0);
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (mounted) _openWidgetQuickEntry();
+      }
+    });
+    if (WidgetsBinding.instance.platformDispatcher.defaultRouteName ==
+        '/quick-add') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openWidgetQuickEntry());
+    }
     unawaited(widget.scheduler.launchedOccurrence().then((occurrenceId) {
       if (occurrenceId != null) _openReminder(occurrenceId);
     }));
@@ -148,6 +194,7 @@ class _FocusLogHomeState extends State<FocusLogHome>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _websocket?.setForeground(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
+      unawaited(_aiExecution.recoverAfterResume());
       unawaited(widget.scheduler.recoverAfterWake());
       unawaited(widget.repository
           .recoverOverdueReminders(reason: 'app-resume')
@@ -160,6 +207,12 @@ class _FocusLogHomeState extends State<FocusLogHome>
           setState(() {});
         }
       }));
+      unawaited(widget.widgetPublisher.refresh(reason: 'application-resume'));
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      unawaited(_aiExecution.recordBackgrounded());
+    } else if (state == AppLifecycleState.detached) {
+      unawaited(_aiExecution.recordSuspended());
     }
   }
 
@@ -204,6 +257,7 @@ class _FocusLogHomeState extends State<FocusLogHome>
           content: Text(
               '${session.name} started; next check-in is scheduled locally.')));
     }
+    await widget.widgetPublisher.refresh(reason: 'focus-session-started');
     setState(() {});
   }
 
@@ -216,10 +270,16 @@ class _FocusLogHomeState extends State<FocusLogHome>
             defaultValue: 'https://localhost')));
     final result = await worker.synchronize();
     worker.dispose();
+    await widget.aiRepository.recordSyncLifecycleResult(
+      status: result.status,
+      pushed: result.pushed,
+      message: result.message,
+    );
     for (final occurrenceId in await widget.repository.resolvedReminderIds()) {
       await widget.scheduler.cancel(occurrenceId);
     }
     await widget.repository.recoverOverdueReminders(reason: 'foreground-sync');
+    await widget.widgetPublisher.refresh(reason: 'synchronization');
     if (mounted) {
       setState(() => _syncStatus = result.status == 'synced'
           ? 'Synchronized ${result.pushed} operation(s)'
@@ -242,10 +302,15 @@ class _FocusLogHomeState extends State<FocusLogHome>
       _Dashboard(
           repository: widget.repository,
           scheduler: widget.scheduler,
+          widgetPublisher: widget.widgetPublisher,
           onStart: _start,
           onReminder: _openReminder),
       _History(repository: widget.repository),
       _Reports(repository: widget.repository),
+      MobileAIAnalysisScreen(repository: widget.aiRepository),
+      MobileAIMemoryScreen(repository: widget.aiRepository),
+      MobileAIPlaygroundScreen(repository: widget.aiRepository),
+      MobileAISecurityScreen(repository: widget.aiRepository),
       _Heatmap(repository: widget.repository),
       _Settings(
           repository: widget.repository,
@@ -259,6 +324,14 @@ class _FocusLogHomeState extends State<FocusLogHome>
       NavigationDestination(icon: Icon(Icons.history), label: 'History'),
       NavigationDestination(
           icon: Icon(Icons.insights_outlined), label: 'Reports'),
+      NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined), label: 'AI'),
+      NavigationDestination(
+          icon: Icon(Icons.hub_outlined), label: 'Memory'),
+      NavigationDestination(
+          icon: Icon(Icons.science_outlined), label: 'Playground'),
+      NavigationDestination(
+          icon: Icon(Icons.health_and_safety_outlined), label: 'Safety'),
       NavigationDestination(
           icon: Icon(Icons.calendar_month_outlined), label: 'Calendar'),
       NavigationDestination(
@@ -326,6 +399,17 @@ class _FocusLogHomeState extends State<FocusLogHome>
       );
     });
   }
+
+  void _openWidgetQuickEntry() {
+    Navigator.of(context).push<void>(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _WidgetQuickEntry(
+          repository: widget.repository,
+          scheduler: widget.scheduler,
+          widgetPublisher: widget.widgetPublisher,
+          onSync: _sync),
+    ));
+  }
 }
 
 class _BrandMark extends StatelessWidget {
@@ -353,15 +437,106 @@ class _BrandMark extends StatelessWidget {
       ]);
 }
 
+/// Lightweight destination used by the Android home-screen widget. It uses the
+/// same repository write path as the main composer and is intentionally usable offline.
+class _WidgetQuickEntry extends StatefulWidget {
+  const _WidgetQuickEntry({
+    required this.repository,
+    required this.scheduler,
+    required this.widgetPublisher,
+    required this.onSync,
+  });
+  final FocusLogRepository repository;
+  final ReminderScheduler scheduler;
+  final WidgetSnapshotPublisher widgetPublisher;
+  final Future<void> Function() onSync;
+
+  @override
+  State<_WidgetQuickEntry> createState() => _WidgetQuickEntryState();
+}
+
+class _WidgetQuickEntryState extends State<_WidgetQuickEntry> {
+  final _controller = TextEditingController();
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final value = _controller.text.trim();
+    if (value.isEmpty) {
+      setState(() => _error = 'Enter a short log before saving.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.createCheckIn(value);
+      await widget.widgetPublisher.refresh(reason: 'widget-quick-entry');
+      unawaited(widget.onSync());
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'FocusLog could not save this log.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Quick add log')),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('Use <category> at the start to organize this log.',
+                  style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                minLines: 4,
+                maxLines: 7,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                    hintText: '<work> Finished the weekly outline'),
+                onSubmitted: (_) => _save(),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+              const Spacer(),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? 'Saving…' : 'Save log'),
+              ),
+              TextButton(
+                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel')),
+            ]),
+          ),
+        ),
+      );
+}
+
 class _Dashboard extends StatefulWidget {
   const _Dashboard({
     required this.repository,
     required this.scheduler,
+    required this.widgetPublisher,
     required this.onStart,
     required this.onReminder,
   });
   final FocusLogRepository repository;
   final ReminderScheduler scheduler;
+  final WidgetSnapshotPublisher widgetPublisher;
   final Future<void> Function() onStart;
   final Future<void> Function(String) onReminder;
 
@@ -406,6 +581,7 @@ class _DashboardState extends State<_Dashboard> {
           (reminder.state == 'SCHEDULED' || reminder.state == 'SNOOZED')) {
         await widget.scheduler.schedule(reminder.id, reminder.dueAt);
       }
+      await widget.widgetPublisher.refresh(reason: 'focus-session-change');
       if (mounted) setState(() {});
     } catch (error) {
       if (mounted) {
@@ -495,6 +671,7 @@ class _DashboardState extends State<_Dashboard> {
     controller.dispose();
     if (value == null || value.trim().isEmpty) return;
     await widget.repository.createCheckIn(value);
+    await widget.widgetPublisher.refresh(reason: 'manual-log-created');
     if (mounted) setState(() {});
   }
 

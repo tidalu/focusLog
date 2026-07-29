@@ -6,20 +6,25 @@ import 'package:drift/drift.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../ai/mobile_ai_repository.dart';
 import '../data/database/app_database.dart';
 import '../data/journal_category.dart';
 import '../identity/device_identity.dart';
+import '../security/endpoint_policy.dart';
+
+const _focusLogMaxSyncResponseBytes = 262144;
 
 class SyncWorker {
   SyncWorker({
     required this.database,
-    required this.endpoint,
+    required Uri endpoint,
     required this.identity,
     DeviceIdentityService? identityService,
     http.Client? client,
     Future<List<ConnectivityResult>> Function()? connectivityCheck,
     DateTime Function()? clock,
   })  : _identityService = identityService ?? DeviceIdentityService(),
+        endpoint = requireFocusLogSafeEndpoint(endpoint),
         _client = client ?? http.Client(),
         _connectivityCheck =
             connectivityCheck ?? Connectivity().checkConnectivity,
@@ -71,6 +76,11 @@ class SyncWorker {
   Future<SyncResult> synchronize() async {
     final connection = await _connectivityCheck();
     if (connection.contains(ConnectivityResult.none)) {
+      await MobileAIRepository(database, identity).recordLifecycleDiagnostic(
+        normalizedState: 'offline',
+        category: 'network',
+        safeReason: 'connectivity_none',
+      );
       return const SyncResult.offline();
     }
     final now = _clock().toUtc();
@@ -111,6 +121,10 @@ class SyncWorker {
                 'UPDATE outbox_operations SET acknowledged_at = ? WHERE operation_id = ?',
                 [now, raw['operationId']],
               );
+              await MobileAIRepository(database, identity).markOutboxAccepted(
+                raw['operationId'] as String,
+                conflictId: raw['conflictId']?.toString(),
+              );
               if (status == 'conflict' || raw['conflictId'] != null) {
                 await _storePushConflict(raw, rows, now);
               }
@@ -120,6 +134,11 @@ class SyncWorker {
         });
       } catch (error) {
         await _scheduleRetry(rows, now, error);
+        await MobileAIRepository(database, identity).recordSyncLifecycleResult(
+          status: 'retrying',
+          pushed: pushed,
+          message: error.toString(),
+        );
         return SyncResult.failed(error.toString());
       }
     }
@@ -127,8 +146,17 @@ class SyncWorker {
     try {
       await _pullRemoteChanges();
     } catch (error) {
+      await MobileAIRepository(database, identity).recordSyncLifecycleResult(
+        status: 'retrying',
+        pushed: pushed,
+        message: error.toString(),
+      );
       return SyncResult.failed(error.toString(), pushed: pushed);
     }
+    await MobileAIRepository(database, identity).recordSyncLifecycleResult(
+      status: 'synced',
+      pushed: pushed,
+    );
     return SyncResult.synced(pushed);
   }
 
@@ -247,6 +275,18 @@ class SyncWorker {
         case 'reminder.complete':
           await _applyReminderCompletion(change, payload);
           break;
+        default:
+          if ((change['kind'] as String).startsWith('ai.')) {
+            await MobileAIRepository(database, identity).applyRemoteEnvelope({
+              'schemaVersion': payload['schemaVersion'],
+              'ownerId': payload['ownerId'] ?? identity.ownerId,
+              'workspaceId': payload['workspaceId'] ?? 'default',
+              'kind': change['kind'],
+              'operationId': operationId,
+              'entityId': change['entityId'],
+              'payload': payload,
+            });
+          }
       }
     }
     await database.customStatement(
@@ -722,7 +762,7 @@ class SyncWorker {
     final canonical =
         '${method.toUpperCase()}\n$path\n$timestamp\n$nonce\n$bodyHash';
     final signature = await _identityService.sign(identity, canonical);
-    return _client
+    final response = await _client
         .send(http.Request(method, endpoint.resolve(path))
           ..headers.addAll({
             'content-type': 'application/json',
@@ -733,6 +773,13 @@ class SyncWorker {
           })
           ..body = bodyJson)
         .then(http.Response.fromStream);
+    if (response.bodyBytes.length > _focusLogMaxSyncResponseBytes) {
+      throw http.ClientException(
+        'Sync response exceeded the mobile safety limit.',
+        endpoint,
+      );
+    }
+    return response;
   }
 
   void _ensureSuccess(http.Response response) {

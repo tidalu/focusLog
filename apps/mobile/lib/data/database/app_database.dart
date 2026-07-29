@@ -355,7 +355,54 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 8;
+
+  Future<void> _ensureMobileAiTables() async {
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_analysis_results (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, level TEXT NOT NULL, period_key TEXT NOT NULL, result_version INTEGER NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, structured_json TEXT NOT NULL, provider_json TEXT NOT NULL, fallback_json TEXT NOT NULL, provenance_json TEXT NOT NULL, stale_state TEXT NOT NULL, supersedes_result_id TEXT, cost_micros TEXT NOT NULL, usage_json TEXT NOT NULL, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, level, period_key, result_version))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_job_projections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, job_type TEXT NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL, requested_by_device_id TEXT, provider_json TEXT NOT NULL, error_json TEXT, result_id TEXT, cost_micros TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, idempotency_key))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_usage_summaries (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, period_key TEXT NOT NULL, purpose TEXT NOT NULL, reserved_micros TEXT NOT NULL, settled_micros TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, period_key, purpose))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_settings (owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, values_json TEXT NOT NULL, schema_version INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, workspace_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_memory_cache (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, source_id TEXT NOT NULL, source_revision_id TEXT, payload_json TEXT NOT NULL, stale_state TEXT NOT NULL, deleted_at TEXT, updated_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_outbox_actions (idempotency_key TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, action_kind TEXT NOT NULL, entity_id TEXT NOT NULL, payload_json TEXT NOT NULL, local_state TEXT NOT NULL, transmitted_at TEXT, accepted_at TEXT, rejected_at TEXT, conflict_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_inbox_cursors (owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, feed TEXT NOT NULL, cursor TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, workspace_id, feed))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_tombstones (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, record_kind TEXT NOT NULL, record_id TEXT NOT NULL, source_revision_id TEXT, deleted_at TEXT NOT NULL, retention_until TEXT NOT NULL, UNIQUE(owner_id, workspace_id, record_kind, record_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_lifecycle_diagnostics (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, normalized_state TEXT NOT NULL, category TEXT NOT NULL, job_id TEXT, safe_reason TEXT NOT NULL, created_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_notification_events (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, notification_kind TEXT NOT NULL, target_kind TEXT NOT NULL, target_id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, notification_kind, target_kind, target_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_playground_projections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, projection_kind TEXT NOT NULL, playground_id TEXT NOT NULL, parent_id TEXT, payload_json TEXT NOT NULL, safe_state TEXT NOT NULL, deleted_at TEXT, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, projection_kind, playground_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_diagnostic_exports (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, export_kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, export_kind))');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_results_current_idx ON ai_mobile_analysis_results(owner_id, workspace_id, level, period_key, deleted_at, result_version)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_jobs_status_idx ON ai_mobile_job_projections(owner_id, workspace_id, status, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_memory_cache_owner_kind_idx ON ai_mobile_memory_cache(owner_id, workspace_id, kind, stale_state)');
+    await customStatement(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ai_mobile_memory_cache_identity_idx ON ai_mobile_memory_cache(owner_id, workspace_id, kind, source_id, COALESCE(source_revision_id, ''))");
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_outbox_state_idx ON ai_mobile_outbox_actions(owner_id, workspace_id, local_state, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_tombstones_record_idx ON ai_mobile_tombstones(owner_id, workspace_id, record_kind, record_id)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_lifecycle_recent_idx ON ai_mobile_lifecycle_diagnostics(owner_id, workspace_id, created_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_notifications_target_idx ON ai_mobile_notification_events(owner_id, workspace_id, target_kind, target_id)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_playground_kind_idx ON ai_mobile_playground_projections(owner_id, workspace_id, projection_kind, safe_state, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_playground_parent_idx ON ai_mobile_playground_projections(owner_id, workspace_id, parent_id, projection_kind)');
+  }
 
   Future<void> _ensureCheckInFts({required bool rebuild}) async {
     await customStatement(
@@ -400,6 +447,15 @@ class AppDatabase extends _$AppDatabase {
         if (from < 5) {
           await _ensureCheckInFts(rebuild: true);
         }
+        if (from < 6) {
+          await _ensureMobileAiTables();
+        }
+        if (from < 7) {
+          await _ensureMobileAiTables();
+        }
+        if (from < 8) {
+          await _ensureMobileAiTables();
+        }
       },
       beforeOpen: (OpeningDetails details) async {
         await customStatement('PRAGMA foreign_keys = ON');
@@ -430,6 +486,7 @@ class AppDatabase extends _$AppDatabase {
           'CREATE TABLE IF NOT EXISTS reminder_drafts (occurrence_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL)',
         );
         await _ensureCheckInFts(rebuild: false);
+        await _ensureMobileAiTables();
       });
 }
 

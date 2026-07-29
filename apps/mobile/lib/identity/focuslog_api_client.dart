@@ -4,17 +4,21 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../security/endpoint_policy.dart';
 import 'device_identity.dart';
+
+const _focusLogMaxApiResponseBytes = 262144;
 
 /// Protocol client shared by Android pairing and authenticated synchronization.
 /// Private key material never leaves [DeviceIdentityService].
 class FocusLogApiClient {
   FocusLogApiClient(
-      {required this.endpoint,
+      {required Uri endpoint,
       required this.identity,
       required this.identityService,
       http.Client? client})
-      : _client = client ?? http.Client();
+      : endpoint = requireFocusLogSafeEndpoint(endpoint),
+        _client = client ?? http.Client();
   final Uri endpoint;
   final DeviceIdentity identity;
   final DeviceIdentityService identityService;
@@ -104,6 +108,12 @@ class FocusLogApiClient {
     }
     final response =
         await http.Response.fromStream(await _client.send(request));
+    if (response.bodyBytes.length > _focusLogMaxApiResponseBytes) {
+      throw FocusLogApiException(
+        413,
+        'Response exceeded the mobile safety limit.',
+      );
+    }
     final decoded = response.body.isEmpty
         ? <String, dynamic>{}
         : jsonDecode(response.body) as Map<String, dynamic>;

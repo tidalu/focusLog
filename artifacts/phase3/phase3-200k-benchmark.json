@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "seed": "focuslog-phase3-f-200k-v1",
+  "logCount": 200000,
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "timingsMs": {
+    "startupAndMigration": 2.78,
+    "syntheticLogGenerationAndInsert": 17890.84,
+    "chunkGenerationIndexingAndVectorPersistence": 65276.39,
+    "factBatchingAndGraphThroughput": 11.14,
+    "semanticHybridFilteredQueries": 5.76,
+    "stalenessPropagation": 521.27,
+    "incrementalEditReindex": 899.85,
+    "deletionCleanup": 500.2,
+    "rendererSafeProjection": 659.55,
+    "restartReopenAndInitialize": 264.15
+  },
+  "memory": {
+    "rssBytes": 91066368,
+    "heapUsedBytes": 6458408
+  },
+  "database": {
+    "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-XklcYC\\phase3-200k.sqlite",
+    "bytes": 401453056
+  },
+  "counts": {
+    "logs": 200000,
+    "chunks": 200000,
+    "activeVectors": 199997,
+    "facts": 3,
+    "graphNodes": 6,
+    "graphEdges": 3,
+    "staleMemory": 2,
+    "logsAfterReopen": 200000
+  },
+  "thresholds": {
+    "startupAndMigration": 5000,
+    "syntheticLogGenerationAndInsert": 90000,
+    "chunkGenerationIndexingAndVectorPersistence": 180000,
+    "semanticHybridFilteredQueries": 3000,
+    "restartReopenAndInitialize": 5000
+  },
+  "queryPlans": [
+    {
+      "name": "broad-local-memory",
+      "items": 2,
+      "staleDisclosure": false,
+      "exclusionReasons": []
+    },
+    {
+      "name": "focused-evidence",
+      "items": 15,
+      "staleDisclosure": false,
+      "exclusionReasons": [
+        "Excluded raw_log:log-198407 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-198239 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-198071 because it exceeded the remaining token budget."
+      ]
+    }
+  ],
+  "security": {
+    "secretFreeDiagnostics": true,
+    "playgroundExcluded": true,
+    "deletedExcluded": true,
+    "noGenerationModelCall": true
+  }
+}

@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.renderer.json",
     "pretest": "pnpm run rebuild:native:node",
     "test": "vitest run --config vitest.config.ts",
-    "test:database": "vitest run --config vitest.config.ts electron/database"
+    "test:database": "pnpm run rebuild:native:node && vitest run --config vitest.config.ts electron/database"
   },
   "dependencies": {
     "@focuslog/shared-utils": "workspace:*",
@@ -51,6 +51,7 @@
     "files": [
       "dist/renderer/**",
       "dist-electron/**",
+      "prompts/**",
       "package.json"
     ],
     "directories": {

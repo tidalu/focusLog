@@ -1,0 +1,440 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-07-29",
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "providers": [
+    {
+      "providerId": "ollama",
+      "label": "Ollama",
+      "path": "local",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "loopback-http",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": true,
+        "jsonMode": true,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "gemini",
+      "label": "Google Gemini",
+      "path": "direct-cloud",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": true,
+        "jsonMode": true,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "openai",
+      "label": "OpenAI",
+      "path": "direct-cloud",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": true,
+        "jsonMode": true,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "anthropic",
+      "label": "Anthropic Claude",
+      "path": "direct-cloud",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": false,
+        "jsonMode": false,
+        "promptJsonFallback": true,
+        "embeddings": false,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "openrouter",
+      "label": "OpenRouter",
+      "path": "direct-cloud",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": true,
+        "jsonMode": true,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "lm-studio",
+      "label": "LM Studio",
+      "path": "local",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "loopback-http",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": true,
+        "jsonMode": true,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "openai-compatible",
+      "label": "OpenAI-compatible API",
+      "path": "openai-compatible",
+      "configured": false,
+      "status": "untested",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": null,
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": false,
+        "jsonMode": false,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "configuration": {
+          "status": "skipped",
+          "detail": "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Live provider smokes are disabled; set FOCUSLOG_PHASE5C_LIVE=1 and provider-specific variables."
+      ],
+      "unsupportedBehavior": []
+    },
+    {
+      "providerId": "openai-compatible",
+      "label": "OpenAI-compatible API",
+      "path": "openai-compatible",
+      "configured": true,
+      "status": "certified",
+      "date": "2026-07-29",
+      "endpointKind": "https",
+      "sdkApiVersion": "focuslog-adapter; node=v22.22.2",
+      "generationModel": "synthetic-error-fixture",
+      "embeddingModel": null,
+      "capabilities": {
+        "generation": true,
+        "streaming": true,
+        "cancellation": true,
+        "structuredOutput": true,
+        "nativeStructuredOutput": false,
+        "jsonMode": false,
+        "promptJsonFallback": true,
+        "embeddings": true,
+        "modelDiscovery": true,
+        "usage": true
+      },
+      "checks": {
+        "invalidCredentials": {
+          "status": "passed",
+          "detail": "Covered by adapter error-normalization tests with redacted credentials."
+        },
+        "timeout": {
+          "status": "passed",
+          "detail": "Covered by adapter timeout and abort-signal tests."
+        },
+        "rateLimit": {
+          "status": "passed",
+          "detail": "Covered by normalized 429 tests without inducing real provider throttling."
+        },
+        "malformedResponse": {
+          "status": "passed",
+          "detail": "Covered by bounded malformed JSON/stream tests."
+        }
+      },
+      "usage": {
+        "reported": false
+      },
+      "limitations": [
+        "Synthetic fault controls are separate from opt-in live provider calls to avoid unsafe credential or quota use."
+      ],
+      "unsupportedBehavior": []
+    }
+  ],
+  "performance": {
+    "schemaVersion": 1,
+    "date": "2026-07-29",
+    "command": "pnpm --filter @focuslog/desktop build:main; node apps/desktop/dist-electron/ai/phase5-provider-performance-runner.js --performance --release-like",
+    "releaseLike": true,
+    "harness": {
+      "schemaVersion": 1,
+      "seed": "focuslog-phase3-f-200k-v1",
+      "logCount": 200000,
+      "environment": {
+        "node": "v22.22.2",
+        "platform": "win32",
+        "arch": "x64"
+      },
+      "timingsMs": {
+        "startupAndMigration": 6.15,
+        "syntheticLogGenerationAndInsert": 53795.73,
+        "chunkGenerationIndexingAndVectorPersistence": 189627.15,
+        "factBatchingAndGraphThroughput": 36.82,
+        "semanticHybridFilteredQueries": 25.2,
+        "stalenessPropagation": 1344.14,
+        "incrementalEditReindex": 2397.05,
+        "deletionCleanup": 1290.67,
+        "rendererSafeProjection": 1461.27,
+        "restartReopenAndInitialize": 427.97
+      },
+      "memory": {
+        "rssBytes": 98586624,
+        "heapUsedBytes": 6611792
+      },
+      "database": {
+        "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-wkMi39\\phase3-200k.sqlite",
+        "bytes": 401608704
+      },
+      "counts": {
+        "logs": 200000,
+        "chunks": 200000,
+        "activeVectors": 199997,
+        "facts": 3,
+        "graphNodes": 6,
+        "graphEdges": 3,
+        "staleMemory": 2,
+        "logsAfterReopen": 200000
+      },
+      "thresholds": {
+        "startupAndMigration": 5000,
+        "syntheticLogGenerationAndInsert": 90000,
+        "chunkGenerationIndexingAndVectorPersistence": 180000,
+        "semanticHybridFilteredQueries": 3000,
+        "restartReopenAndInitialize": 5000
+      },
+      "queryPlans": [
+        {
+          "name": "broad-local-memory",
+          "items": 2,
+          "staleDisclosure": false,
+          "exclusionReasons": []
+        },
+        {
+          "name": "focused-evidence",
+          "items": 15,
+          "staleDisclosure": false,
+          "exclusionReasons": [
+            "Excluded raw_log:log-198407 because it exceeded the remaining token budget.",
+            "Excluded raw_log:log-198239 because it exceeded the remaining token budget.",
+            "Excluded raw_log:log-198071 because it exceeded the remaining token budget."
+          ]
+        }
+      ],
+      "security": {
+        "secretFreeDiagnostics": true,
+        "playgroundExcluded": true,
+        "deletedExcluded": true,
+        "noGenerationModelCall": true
+      }
+    },
+    "thresholdsPassed": false,
+    "resourceControls": {
+      "rendererSafeProjectionBounded": true,
+      "startupDoesNotProcessBacklogSynchronously": true,
+      "queueBackpressureDocumented": true,
+      "importContextResponseLimitsDocumented": true,
+      "indexesJustified": true
+    },
+    "regressionBaseline": {
+      "source": "Phase 3-F thresholds in docs/AI_PERFORMANCE.md and harness JSON artifact",
+      "thresholds": {
+        "startupAndMigration": 5000,
+        "syntheticLogGenerationAndInsert": 90000,
+        "chunkGenerationIndexingAndVectorPersistence": 180000,
+        "semanticHybridFilteredQueries": 3000,
+        "restartReopenAndInitialize": 5000
+      },
+      "comparedMetrics": [
+        "startupAndMigration",
+        "syntheticLogGenerationAndInsert",
+        "chunkGenerationIndexingAndVectorPersistence",
+        "semanticHybridFilteredQueries",
+        "restartReopenAndInitialize"
+      ]
+    }
+  },
+  "summary": {
+    "configuredProviders": 0,
+    "certifiedProviders": 1,
+    "failedProviders": 0,
+    "untestedProviders": [
+      "ollama",
+      "gemini",
+      "openai",
+      "anthropic",
+      "openrouter",
+      "lm-studio",
+      "openai-compatible"
+    ],
+    "certifiedLocalPath": false,
+    "certifiedDirectCloudPath": false,
+    "certifiedOpenAICompatiblePath": false,
+    "releaseLikePerformance": false
+  },
+  "secretFree": true
+}

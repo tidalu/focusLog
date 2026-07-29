@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "focuslog-widget-snapshot-v1",
+  "title": "FocusLog Widget Snapshot",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "profileId",
+    "createdAt",
+    "dataFreshnessAt",
+    "localDate",
+    "timezoneId",
+    "dailyCompletionPercentage",
+    "logsToday",
+    "focusDurationMinutes",
+    "offline",
+    "pendingSync",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "profileId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "dataFreshnessAt": { "type": "string", "format": "date-time" },
+    "localDate": { "type": "string", "format": "date" },
+    "timezoneId": { "type": "string", "minLength": 1 },
+    "dailyCompletionPercentage": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "logsToday": { "type": "integer", "minimum": 0 },
+    "focusDurationMinutes": { "type": "integer", "minimum": 0 },
+    "focusScore": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+    "activeSession": { "type": ["object", "null"] },
+    "timeSinceLastLogMinutes": { "type": ["integer", "null"], "minimum": 0 },
+    "nextReminderAt": { "type": ["string", "null"], "format": "date-time" },
+    "timeUntilNextReminderMinutes": { "type": ["integer", "null"], "minimum": 0 },
+    "currentActivity": { "type": ["string", "null"] },
+    "latestInsight": { "type": ["object", "null"] },
+    "offline": { "type": "boolean" },
+    "pendingSync": { "type": "boolean" },
+    "privacy": { "enum": ["hidden", "redacted", "full"] }
+  },
+  "additionalProperties": false
+}
