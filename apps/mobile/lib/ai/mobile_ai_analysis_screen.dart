@@ -60,7 +60,9 @@ class _MobileAIAnalysisScreenState extends State<MobileAIAnalysisScreen>
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _load());
+    setState(() {
+      _future = _load();
+    });
     await _future;
   }
 
@@ -770,28 +772,33 @@ class _AnalysisDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text('${_title(item.level)} ${item.periodKey}')),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          children: [
-            Text(
-              item.summary,
-              style: Theme.of(context).textTheme.titleLarge,
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  item.summary,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                _MetadataCard(detail: detail),
+                const SizedBox(height: 12),
+                _StructuredSections(values: detail.structured),
+                const SizedBox(height: 12),
+                _ProvenanceCard(
+                  provenance: detail.provenance,
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: onRegenerate,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Regenerate this period'),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            _MetadataCard(detail: detail),
-            const SizedBox(height: 12),
-            _StructuredSections(values: detail.structured),
-            const SizedBox(height: 12),
-            _ProvenanceCard(
-              provenance: detail.provenance,
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: onRegenerate,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Regenerate this period'),
-            ),
-          ],
+          ),
         ),
       ),
     );
