@@ -2332,7 +2332,7 @@ class MobileAIRepository {
                 ? null
                 : _readJsonObject(row.read<String>('error_json')),
             resultId: row.readNullable<String>('result_id'),
-            updatedAt: _readDate(row.read<Object>('updated_at')),
+            updatedAt: _readDate(row.read<String>('updated_at')),
           ),
         )
         .toList();
@@ -3041,7 +3041,7 @@ MobileAIAnalysisListItem _analysisListItemFromRow(QueryRow row) =>
       summary: row.read<String>('summary'),
       costMicros: row.read<String>('cost_micros'),
       staleState: row.read<String>('stale_state'),
-      createdAt: _readDate(row.read<Object>('created_at')),
+      createdAt: _readDate(row.read<String>('created_at')),
     );
 
 MobileAILifecycleDiagnostic _lifecycleDiagnosticFromRow(QueryRow row) =>
@@ -3051,7 +3051,7 @@ MobileAILifecycleDiagnostic _lifecycleDiagnosticFromRow(QueryRow row) =>
       category: row.read<String>('category'),
       jobId: row.readNullable<String>('job_id'),
       safeReason: row.read<String>('safe_reason'),
-      createdAt: _readDate(row.read<Object>('created_at')),
+      createdAt: _readDate(row.read<String>('created_at')),
     );
 
 MobileAINotificationIntent _notificationIntentFromRow(QueryRow row) =>
@@ -3084,7 +3084,7 @@ MobileAIPlaygroundSession _playgroundSessionFromRow(
     model: payload['model'] as String? ?? 'not disclosed',
     costMicros: costMicros,
     latestRunStatus: payload['latestRunStatus'] as String? ?? 'none',
-    updatedAt: _readDate(row.read<Object>('updated_at')),
+    updatedAt: _readDate(row.read<String>('updated_at')),
   );
 }
 
@@ -3118,7 +3118,7 @@ MobileAIPlaygroundRun _playgroundRunFromRow(
     contextSnapshot: payload['contextSnapshot'] is Map<String, dynamic>
         ? payload['contextSnapshot'] as Map<String, dynamic>
         : <String, dynamic>{},
-    updatedAt: _readDate(row.read<Object>('updated_at')),
+    updatedAt: _readDate(row.read<String>('updated_at')),
   );
 }
 
@@ -3138,7 +3138,7 @@ MobileAIPlaygroundEvaluation _playgroundEvaluationFromRow(
     subjectiveLabel: payload['subjectiveLabel'] as String? ?? 'none',
     costMicros: costMicros,
     versionSummary: payload['versionSummary'] as String? ?? 'frozen',
-    updatedAt: _readDate(row.read<Object>('updated_at')),
+    updatedAt: _readDate(row.read<String>('updated_at')),
   );
 }
 
@@ -3269,7 +3269,7 @@ MobileMemorySearchResult _searchResultFromRow(
       : <String, dynamic>{};
   final timestamp = payload['timestamp'] as String? ??
       payload['createdAt'] as String? ??
-      row.read<Object>('updated_at').toString();
+      row.read<String>('updated_at');
   return MobileMemorySearchResult(
     id: row.read<String>('id'),
     sourceId: payload['sourceId'] as String? ?? row.read<String>('source_id'),
@@ -3334,7 +3334,7 @@ MobileMemoryAnswer _answerFromRow(QueryRow row, Map<String, dynamic> payload) =>
       uncertainty: payload['uncertainty'] as String? ?? 'not disclosed',
       staleDisclosure: payload['staleDisclosure'] as String? ?? 'none',
       evidence: _evidenceList(payload['evidence']),
-      createdAt: _readDate(row.read<Object>('updated_at')),
+      createdAt: _readDate(row.read<String>('updated_at')),
     );
 
 List<Map<String, dynamic>> _evidenceList(Object? value) {
