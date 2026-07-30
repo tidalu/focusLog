@@ -5,3 +5,4 @@ export type OpaqueId = string;
 export type UtcTimestamp = string;
 
 export * from './generated-contracts.js';
+export * from './cross-platform-release.js';

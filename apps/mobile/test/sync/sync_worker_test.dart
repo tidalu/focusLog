@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:focuslog_mobile/ai/mobile_ai_repository.dart';
 import 'package:focuslog_mobile/data/database/app_database.dart';
 import 'package:focuslog_mobile/data/mobile_repository.dart';
 import 'package:focuslog_mobile/sync/sync_worker.dart';
@@ -143,5 +145,40 @@ void main() {
         clock: () => start.add(const Duration(minutes: 5)));
     expect((await recovered.synchronize()).status, 'synced');
     expect((await repository.dailyReport()).queuedOperations, 0);
+  });
+
+  test('synchronizes mobile AI outbox acknowledgements', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+    final identity = DeviceIdentity(
+        ownerId: '0123456789ABCDEFGHJKMNPQRS',
+        deviceId: '0123456789ABCDEFGHJKMNPQRT',
+        publicKeyPem: 'test',
+        privateKey: const [],
+        publicKey: const []);
+    final aiRepository = MobileAIRepository(database, identity);
+    final operationId = await aiRepository.queueManualAnalysisRequest(
+      level: 'daily',
+      periodKey: '2026-07-29',
+    );
+    final worker = SyncWorker(
+        database: database,
+        identity: identity,
+        identityService: _TestIdentityService(),
+        endpoint: Uri.parse('https://focuslog.example'),
+        client: _AcceptedClient(),
+        connectivityCheck: () async => [ConnectivityResult.wifi]);
+
+    final result = await worker.synchronize();
+    final localState = await database
+        .customSelect(
+          'SELECT local_state FROM ai_mobile_outbox_actions '
+          'WHERE operation_id = ?',
+          variables: [Variable.withString(operationId)],
+        )
+        .getSingle();
+
+    expect(result.status, 'synced');
+    expect(localState.read<String>('local_state'), 'accepted');
   });
 }

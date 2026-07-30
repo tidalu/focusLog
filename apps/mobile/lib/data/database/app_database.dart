@@ -377,7 +377,94 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 9;
+
+  Future<void> _ensureMobileAiTables() async {
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_analysis_results (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, level TEXT NOT NULL, period_key TEXT NOT NULL, result_version INTEGER NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, structured_json TEXT NOT NULL, provider_json TEXT NOT NULL, fallback_json TEXT NOT NULL, provenance_json TEXT NOT NULL, stale_state TEXT NOT NULL, supersedes_result_id TEXT, cost_micros TEXT NOT NULL, usage_json TEXT NOT NULL, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, level, period_key, result_version))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_job_projections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, job_type TEXT NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL, requested_by_device_id TEXT, provider_json TEXT NOT NULL, error_json TEXT, result_id TEXT, cost_micros TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, idempotency_key))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_usage_summaries (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, period_key TEXT NOT NULL, purpose TEXT NOT NULL, reserved_micros TEXT NOT NULL, settled_micros TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, period_key, purpose))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_settings (owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, values_json TEXT NOT NULL, schema_version INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, workspace_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_memory_cache (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, source_id TEXT NOT NULL, source_revision_id TEXT, payload_json TEXT NOT NULL, stale_state TEXT NOT NULL, deleted_at TEXT, updated_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_outbox_actions (idempotency_key TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, action_kind TEXT NOT NULL, entity_id TEXT NOT NULL, payload_json TEXT NOT NULL, local_state TEXT NOT NULL, transmitted_at TEXT, accepted_at TEXT, rejected_at TEXT, conflict_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_inbox_cursors (owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, feed TEXT NOT NULL, cursor TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner_id, workspace_id, feed))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_tombstones (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, record_kind TEXT NOT NULL, record_id TEXT NOT NULL, source_revision_id TEXT, deleted_at TEXT NOT NULL, retention_until TEXT NOT NULL, UNIQUE(owner_id, workspace_id, record_kind, record_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_lifecycle_diagnostics (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, normalized_state TEXT NOT NULL, category TEXT NOT NULL, job_id TEXT, safe_reason TEXT NOT NULL, created_at TEXT NOT NULL)');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_notification_events (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, notification_kind TEXT NOT NULL, target_kind TEXT NOT NULL, target_id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, notification_kind, target_kind, target_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_playground_projections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, projection_kind TEXT NOT NULL, playground_id TEXT NOT NULL, parent_id TEXT, payload_json TEXT NOT NULL, safe_state TEXT NOT NULL, deleted_at TEXT, updated_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, projection_kind, playground_id))');
+    await customStatement(
+        'CREATE TABLE IF NOT EXISTS ai_mobile_diagnostic_exports (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, workspace_id TEXT NOT NULL, export_kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, workspace_id, export_kind))');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_results_current_idx ON ai_mobile_analysis_results(owner_id, workspace_id, level, period_key, deleted_at, result_version)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_jobs_status_idx ON ai_mobile_job_projections(owner_id, workspace_id, status, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_memory_cache_owner_kind_idx ON ai_mobile_memory_cache(owner_id, workspace_id, kind, stale_state)');
+    await customStatement(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ai_mobile_memory_cache_identity_idx ON ai_mobile_memory_cache(owner_id, workspace_id, kind, source_id, COALESCE(source_revision_id, ''))");
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_outbox_state_idx ON ai_mobile_outbox_actions(owner_id, workspace_id, local_state, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_tombstones_record_idx ON ai_mobile_tombstones(owner_id, workspace_id, record_kind, record_id)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_lifecycle_recent_idx ON ai_mobile_lifecycle_diagnostics(owner_id, workspace_id, created_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_notifications_target_idx ON ai_mobile_notification_events(owner_id, workspace_id, target_kind, target_id)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_playground_kind_idx ON ai_mobile_playground_projections(owner_id, workspace_id, projection_kind, safe_state, updated_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS ai_mobile_playground_parent_idx ON ai_mobile_playground_projections(owner_id, workspace_id, parent_id, projection_kind)');
+  }
+
+  Future<bool> _columnExists(String tableName, String columnName) async {
+    final columns = await customSelect('PRAGMA table_info($tableName)').get();
+    return columns.any((row) => row.data['name'] == columnName);
+  }
+
+  Future<void> _ensureMultiSectionCategoryTables({required bool rebuild}) async {
+    if (!await _columnExists('categories', 'parent_id')) {
+      await customStatement(
+          'ALTER TABLE categories ADD COLUMN parent_id TEXT REFERENCES categories(id)');
+    }
+    if (!await _columnExists('categories', 'path')) {
+      await customStatement('ALTER TABLE categories ADD COLUMN path TEXT');
+    }
+    if (!await _columnExists('categories', 'depth')) {
+      await customStatement(
+          'ALTER TABLE categories ADD COLUMN depth INTEGER NOT NULL DEFAULT 1');
+    }
+    await customStatement(
+        'UPDATE check_ins SET category_id = (SELECT canonical.id FROM categories AS current JOIN categories AS canonical ON canonical.owner_id = current.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(current.name)) WHERE current.id = check_ins.category_id ORDER BY canonical.created_at, canonical.id LIMIT 1) WHERE category_id IS NOT NULL');
+    await customStatement(
+        'DELETE FROM categories WHERE EXISTS (SELECT 1 FROM categories AS canonical WHERE canonical.owner_id = categories.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(categories.name)) AND (canonical.created_at < categories.created_at OR (canonical.created_at = categories.created_at AND canonical.id < categories.id)))');
+    await customStatement(
+        'UPDATE categories SET path = LOWER(TRIM(name)) WHERE path IS NULL');
+    await customStatement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS categories_owner_path_idx ON categories(owner_id, path)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS categories_owner_parent_idx ON categories(owner_id, parent_id, deleted_at)');
+    await customStatement(
+        "CREATE TABLE IF NOT EXISTS log_sections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, check_in_id TEXT NOT NULL, revision_id TEXT NOT NULL, category_id TEXT, position INTEGER NOT NULL, body TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL, timezone_id TEXT NOT NULL, version TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(revision_id, position))");
+    await customStatement(
+        "INSERT OR IGNORE INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) SELECT check_in_revisions.id, check_ins.owner_id, check_ins.id, check_in_revisions.id, check_ins.category_id, 0, check_in_revisions.body, '{}', check_ins.submitted_at, check_ins.timezone_id, check_in_revisions.id, check_in_revisions.created_at FROM check_in_revisions JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id");
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS log_sections_check_in_revision_position_idx ON log_sections(check_in_id, revision_id, position)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS log_sections_owner_occurred_idx ON log_sections(owner_id, occurred_at)');
+    await customStatement(
+        'CREATE INDEX IF NOT EXISTS log_sections_category_occurred_idx ON log_sections(category_id, occurred_at)');
+    await _ensureLogSectionFts(rebuild: rebuild);
+  }
 
   Future<void> _ensureCheckInFts({required bool rebuild}) async {
     await customStatement(
@@ -437,30 +524,9 @@ class AppDatabase extends _$AppDatabase {
         if (from < 5) {
           await _ensureCheckInFts(rebuild: true);
         }
-        if (from < 6) {
-          await migrator.addColumn(categories, categories.parentId);
-          await migrator.addColumn(categories, categories.path);
-          await migrator.addColumn(categories, categories.depth);
-          await customStatement(
-              'UPDATE check_ins SET category_id = (SELECT canonical.id FROM categories AS current JOIN categories AS canonical ON canonical.owner_id = current.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(current.name)) WHERE current.id = check_ins.category_id ORDER BY canonical.created_at, canonical.id LIMIT 1) WHERE category_id IS NOT NULL');
-          await customStatement(
-              'DELETE FROM categories WHERE EXISTS (SELECT 1 FROM categories AS canonical WHERE canonical.owner_id = categories.owner_id AND LOWER(TRIM(canonical.name)) = LOWER(TRIM(categories.name)) AND (canonical.created_at < categories.created_at OR (canonical.created_at = categories.created_at AND canonical.id < categories.id)))');
-          await customStatement(
-              'UPDATE categories SET path = LOWER(TRIM(name)) WHERE path IS NULL');
-          await customStatement(
-              'CREATE UNIQUE INDEX IF NOT EXISTS categories_owner_path_idx ON categories(owner_id, path)');
-          await customStatement(
-              'CREATE INDEX IF NOT EXISTS categories_owner_parent_idx ON categories(owner_id, parent_id, deleted_at)');
-          await migrator.createTable(logSections);
-          await customStatement(
-              "INSERT INTO log_sections (id, owner_id, check_in_id, revision_id, category_id, position, body, metadata_json, occurred_at, timezone_id, version, created_at) SELECT check_in_revisions.id, check_ins.owner_id, check_ins.id, check_in_revisions.id, check_ins.category_id, 0, check_in_revisions.body, '{}', check_ins.submitted_at, check_ins.timezone_id, check_in_revisions.id, check_in_revisions.created_at FROM check_in_revisions JOIN check_ins ON check_ins.id = check_in_revisions.check_in_id");
-          await customStatement(
-              'CREATE INDEX IF NOT EXISTS log_sections_check_in_revision_position_idx ON log_sections(check_in_id, revision_id, position)');
-          await customStatement(
-              'CREATE INDEX IF NOT EXISTS log_sections_owner_occurred_idx ON log_sections(owner_id, occurred_at)');
-          await customStatement(
-              'CREATE INDEX IF NOT EXISTS log_sections_category_occurred_idx ON log_sections(category_id, occurred_at)');
-          await _ensureLogSectionFts(rebuild: true);
+        if (from < 9) {
+          await _ensureMobileAiTables();
+          await _ensureMultiSectionCategoryTables(rebuild: true);
         }
       },
       beforeOpen: (OpeningDetails details) async {
@@ -502,7 +568,8 @@ class AppDatabase extends _$AppDatabase {
           'CREATE TABLE IF NOT EXISTS reminder_drafts (occurrence_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL)',
         );
         await _ensureCheckInFts(rebuild: false);
-        await _ensureLogSectionFts(rebuild: false);
+        await _ensureMobileAiTables();
+        await _ensureMultiSectionCategoryTables(rebuild: false);
       });
 }
 

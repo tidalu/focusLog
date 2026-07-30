@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:focuslog_mobile/ai/mobile_ai_repository.dart';
 import 'package:focuslog_mobile/main.dart';
 import 'package:focuslog_mobile/data/database/app_database.dart';
 import 'package:focuslog_mobile/data/mobile_repository.dart';
 import 'package:focuslog_mobile/reminders/reminder_scheduler.dart';
 import 'package:focuslog_mobile/identity/device_identity.dart';
+import 'package:focuslog_mobile/widgets/widget_snapshot.dart';
 import 'package:drift/native.dart';
 
 class _TestScheduler implements ReminderScheduler {
@@ -40,7 +42,10 @@ void main() {
         publicKey: const []);
     await tester.pumpWidget(FocusLogApp(
         repository: FocusLogRepository(database, identity),
-        scheduler: _TestScheduler()));
+        aiRepository: MobileAIRepository(database, identity),
+        scheduler: _TestScheduler(),
+        widgetPublisher:
+            WidgetSnapshotPublisher(FocusLogRepository(database, identity))));
 
     expect(find.text('FocusLog'), findsOneWidget);
     expect(find.text('Start focus session'), findsOneWidget);

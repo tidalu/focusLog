@@ -5,11 +5,23 @@ import { desktopMigrations } from './migrations.js';
 
 export type DesktopDatabase = Database.Database;
 
+/** Internal migration seam used to verify transactional upgrade recovery. */
+export interface DesktopMigrationOptions {
+  beforeMigration?(migration: { version: number; name: string }): void;
+}
+
 function now(): string {
   return new Date().toISOString();
 }
 
-export function migrateDesktopDatabase(database: DesktopDatabase): void {
+export const latestDesktopMigrationVersion = Math.max(
+  ...desktopMigrations.map((migration) => migration.version)
+);
+
+export function migrateDesktopDatabase(
+  database: DesktopDatabase,
+  options: DesktopMigrationOptions = {}
+): void {
   database.pragma('foreign_keys = ON');
   database.pragma('journal_mode = WAL');
   database.exec(
@@ -19,6 +31,11 @@ export function migrateDesktopDatabase(database: DesktopDatabase): void {
   const rows = database.prepare('SELECT version FROM schema_migrations').all() as {
     version: number;
   }[];
+  const futureVersion = rows.find((row) => row.version > latestDesktopMigrationVersion);
+  if (futureVersion)
+    throw new Error(
+      `This FocusLog database uses schema version ${futureVersion.version}, which is newer than this application supports. Update FocusLog before opening it.`
+    );
   const applied = new Set<number>(rows.map((row) => row.version));
   const recordMigration = database.prepare(
     'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
@@ -27,6 +44,7 @@ export function migrateDesktopDatabase(database: DesktopDatabase): void {
   for (const migration of desktopMigrations) {
     if (applied.has(migration.version)) continue;
     database.transaction(() => {
+      options.beforeMigration?.(migration);
       for (const statement of migration.statements) database.exec(statement);
       recordMigration.run(migration.version, migration.name, now());
     })();
@@ -72,6 +90,8 @@ export function openDesktopDatabase(filename: string, key?: Buffer): DesktopData
     return database;
   } catch (error) {
     database.close();
+    if (error instanceof Error && error.message.includes('newer than this application supports'))
+      throw error;
     throw new Error('The encrypted desktop database could not be opened or validated.', {
       cause: error
     });

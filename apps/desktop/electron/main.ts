@@ -6,6 +6,8 @@ import {
   Menu,
   nativeImage,
   powerMonitor,
+  screen,
+  session as electronSession,
   Tray
 } from 'electron';
 import { readFileSync } from 'node:fs';
@@ -49,6 +51,32 @@ import { permanentlyDeleteLocalData } from './security/permanent-deletion.js';
 import { ReportingService, type ReportSelection } from './reporting/reporting-service.js';
 import { localDayForInstant } from '@focuslog/shared-utils';
 import { searchCheckIns, type CheckInSearchFilters } from './database/check-in-search.js';
+import { AIService } from './ai/ai-service.js';
+import { DesktopCredentialStore } from './ai/credentials.js';
+import type { AISettings, ProviderProfile } from './ai/types.js';
+import { AnalysisService } from './ai/analysis-service.js';
+import { AIJobQueue } from './ai/job-queue.js';
+import type { AIJobWorker } from './ai/job-worker.js';
+import type { QueueReadService } from './ai/queue-read-service.js';
+import { createAIQueueRuntime } from './ai/queue-runtime.js';
+import type { AIQueueRuntime } from './ai/queue-runtime.js';
+import { registerQueueRuntimeLifecycle } from './ai/queue-runtime-lifecycle.js';
+import { registerAIQueueIpcHandlers } from './ai/queue-ipc.js';
+import { providerCapacityFor } from './ai/provider-execution-coordinator.js';
+import { AnalysisSchedulerRuntime, AnalysisSchedulerService } from './ai/analysis-scheduler.js';
+import { AnalysisReadService } from './ai/analysis-read-service.js';
+import {
+  AIMemoryControlService,
+  registerAIMemoryIpcHandlers
+} from './ai/memory-control-service.js';
+import { PlaygroundEvaluationService } from './ai/playground-evaluation-service.js';
+import { Phase5UXDiagnosticsPackagingService } from './ai/phase5-ux-diagnostics-packaging-service.js';
+import {
+  readWidgetSettings,
+  updateWidgetSettings,
+  WidgetService,
+  type WidgetSettings
+} from './widgets/widget-service.js';
 
 let scheduler: ReminderScheduler | undefined;
 let tray: Tray | undefined;
@@ -64,9 +92,57 @@ let websocketClient: FocusLogWebSocketClient | undefined;
 let synchronizationOnline = false;
 let lastSynchronizedAt: string | undefined;
 let lastSynchronizationError: string | undefined;
+let aiService: AIService | undefined;
+let analysisService: AnalysisService | undefined;
+let aiJobQueue: AIJobQueue | undefined;
+let aiJobWorker: AIJobWorker | undefined;
+let queueReadService: QueueReadService | undefined;
+let aiQueueRuntime: AIQueueRuntime | undefined;
+let aiAnalysisScheduler: AnalysisSchedulerRuntime | undefined;
+let aiAnalysisSchedulerService: AnalysisSchedulerService | undefined;
+let aiAnalysisReadService: AnalysisReadService | undefined;
+let aiMemoryControlService: AIMemoryControlService | undefined;
+let playgroundEvaluationService: PlaygroundEvaluationService | undefined;
+let phase5DService: Phase5UXDiagnosticsPackagingService | undefined;
+let widgetWindow: BrowserWindow | undefined;
+let widgetService: WidgetService | undefined;
+let requestSynchronization: (() => void) | undefined;
 const focusLogApiUrl =
   process.env.FOCUSLOG_API_URL?.trim() || 'https://focuslog-backend.onrender.com';
 const startedInBackground = process.argv.includes('--background');
+
+export const focusLogContentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self' https: http://127.0.0.1:* http://localhost:*",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'none'"
+].join('; ');
+
+let securityHeadersRegistered = false;
+
+export function registerSecurityHeaders(
+  targetSession = electronSession.defaultSession,
+  contentSecurityPolicy = focusLogContentSecurityPolicy
+): void {
+  if (securityHeadersRegistered) return;
+  securityHeadersRegistered = true;
+  targetSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [contentSecurityPolicy],
+        'X-Content-Type-Options': ['nosniff'],
+        'Referrer-Policy': ['no-referrer']
+      }
+    });
+  });
+}
 
 function showMainWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -113,6 +189,105 @@ function showMainWindow(): BrowserWindow {
   });
   void window.loadFile(join(import.meta.dirname, '../dist/renderer/index.html'));
   return window;
+}
+
+function widgetSettings(): WidgetSettings {
+  return readWidgetSettings(readOwnerSettings(desktopDatabase!, ownerId));
+}
+
+function saveWidgetSettings(patch: Partial<WidgetSettings>): WidgetSettings {
+  const values = readOwnerSettings(desktopDatabase!, ownerId);
+  const next = updateWidgetSettings(values, patch);
+  writeOwnerSettings(desktopDatabase!, ownerId, values);
+  return next;
+}
+
+function widgetMarkup(): string {
+  // This renderer receives only a privacy-filtered snapshot over the preload bridge.
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FocusLog widget</title><style>html{background:transparent}body{margin:0;padding:10px;background:transparent;color:#f8f8ff;font:13px/1.35 "Segoe UI",system-ui,sans-serif;user-select:none}main{min-height:calc(100vh - 20px);box-sizing:border-box;padding:16px;border:1px solid #ffffff24;border-radius:18px;background:linear-gradient(145deg,#25243beF,#14141feF);box-shadow:0 12px 32px #0006;display:grid;gap:12px;-webkit-app-region:drag}button{border:0;border-radius:10px;padding:8px 10px;background:#7774f2;color:white;font:600 12px inherit;cursor:pointer;-webkit-app-region:no-drag}button:focus-visible{outline:3px solid white;outline-offset:2px}.top,.numbers,.actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.brand{font-weight:750}.muted{color:#b8b7ca}.progress{height:8px;border-radius:99px;background:#ffffff16;overflow:hidden}.progress i{display:block;height:100%;border-radius:inherit;background:#9896ff}.metric{font-size:25px;font-weight:750}.card{padding:10px;border-radius:12px;background:#ffffff0d}.insight{white-space:pre-wrap;max-height:118px;overflow:hidden}.hidden{display:none}</style></head><body><main><div class="top"><span class="brand">FocusLog</span><button id="hide" aria-label="Hide widget">Hide</button></div><div><div class="numbers"><span class="metric" id="completion">—</span><span class="muted" id="logs"></span></div><div class="progress"><i id="bar"></i></div></div><div id="details" class="card muted">Loading local data…</div><div id="insight" class="card insight hidden"></div><div class="actions"><button id="add">Add log</button><button id="session">Start focus</button></div></main><script>const $=id=>document.getElementById(id);const text=(id,value)=>$(id).textContent=value;const minute=n=>n==null?'No recent log':n===0?'Just now':n+' min ago';async function render(){try{const s=await window.focuslog.widgetSnapshot();text('completion',s.dailyCompletionPercentage+'%');$('bar').style.width=s.dailyCompletionPercentage+'%';text('logs',s.logsToday+' log'+(s.logsToday===1?'':'s')+' today');const parts=[];if(s.activeSession)parts.push(s.activeSession.status==='PAUSED'?'Focus paused':'Focusing: '+s.activeSession.name);if(s.nextReminderAt)parts.push('Next reminder in '+s.timeUntilNextReminderMinutes+' min');else parts.push('No reminder scheduled');if(s.currentActivity)parts.push('Last: '+s.currentActivity);text('details',parts.join(' · '));if(s.latestInsight){$('insight').classList.remove('hidden');text('insight',s.latestInsight.content+(s.latestInsight.stale?' (stale)':''));}else $('insight').classList.add('hidden');text('session',s.activeSession?'Stop focus':'Start focus');}catch{ text('details','FocusLog data is temporarily unavailable.'); }}$('add').onclick=()=>window.focuslog.openWidgetQuickAdd();$('session').onclick=()=>window.focuslog.widgetFocusAction().then(render);$('hide').onclick=()=>window.focuslog.hideWidget();window.focuslog.onWidgetUpdated(render);render();setInterval(render,60000);</script></body></html>`;
+}
+
+function showWidget(): BrowserWindow {
+  const settings = widgetSettings();
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.show();
+    widgetWindow.focus();
+    return widgetWindow;
+  }
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const x = Math.min(
+    Math.max(settings.x ?? workArea.x + workArea.width - settings.width - 24, workArea.x),
+    workArea.x + workArea.width - settings.width
+  );
+  const y = Math.min(
+    Math.max(settings.y ?? workArea.y + workArea.height - settings.height - 24, workArea.y),
+    workArea.y + workArea.height - settings.height
+  );
+  const window = new BrowserWindow({
+    width: settings.width,
+    height: settings.height,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    minWidth: 260,
+    minHeight: 160,
+    alwaysOnTop: settings.alwaysOnTop,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: join(import.meta.dirname, 'preload.cjs')
+    }
+  });
+  widgetWindow = window;
+  window.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      window.hide();
+    }
+  });
+  window.on('moved', () => {
+    const [nextX, nextY] = window.getPosition();
+    saveWidgetSettings({ x: nextX, y: nextY });
+  });
+  window.on('resized', () => {
+    const [width, height] = window.getSize();
+    saveWidgetSettings({ width, height });
+  });
+  window.on('closed', () => {
+    if (widgetWindow === window) widgetWindow = undefined;
+  });
+  void window.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(widgetMarkup())}`);
+  window.once('ready-to-show', () => window.show());
+  return window;
+}
+
+function notifyWidget(): void {
+  if (widgetWindow && !widgetWindow.isDestroyed())
+    widgetWindow.webContents.send('focuslog:widget-updated');
+}
+
+function showWidgetQuickAdd(): void {
+  const quickEntry = new BrowserWindow({
+    width: 440,
+    height: 310,
+    parent: widgetWindow,
+    modal: false,
+    resizable: false,
+    title: 'Add FocusLog entry',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: join(import.meta.dirname, 'preload.cjs')
+    }
+  });
+  const quickEntryMarkup = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:22px;background:#181824;color:#fff;font:14px "Segoe UI",system-ui,sans-serif}form{display:grid;gap:12px}textarea{min-height:100px;padding:12px;border-radius:10px;border:1px solid #ffffff33;background:#ffffff10;color:#fff;font:inherit}button{padding:10px 14px;border:0;border-radius:9px;background:#7774f2;color:white;font:600 14px inherit}.error{color:#ffb4ab;min-height:20px}</style></head><body><form><strong>Quick add</strong><label>Use &lt;category&gt; syntax to categorize automatically.<textarea autofocus required placeholder="&lt;work&gt; Finished the outline"></textarea></label><span class="error"></span><button>Save log</button></form><script>const f=document.querySelector('form'),t=document.querySelector('textarea'),e=document.querySelector('.error');f.onsubmit=async x=>{x.preventDefault();e.textContent='';try{await window.focuslog.widgetCreateLog(t.value);window.close()}catch(err){e.textContent=err instanceof Error?err.message:'Unable to save this log.'}}</script></body></html>`;
+  void quickEntry.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(quickEntryMarkup)}`);
 }
 
 function ensureLocalIdentity(): void {
@@ -309,6 +484,7 @@ void app
   .whenReady()
   .then(() => {
     if (!hasSingleInstanceLock) return;
+    registerSecurityHeaders();
     const userDataPath = app.getPath('userData');
     const databasePath = join(userDataPath, 'focuslog.sqlite');
     const databaseKeyPath = join(userDataPath, 'database-key.bin');
@@ -321,6 +497,34 @@ void app
     ownerId = identity.ownerId;
     deviceId = identity.deviceId;
     ensureLocalIdentity();
+    aiService = new AIService(
+      database,
+      ownerId,
+      new DesktopCredentialStore(userDataPath, electronSecretProtector)
+    );
+    analysisService = new AnalysisService(database, ownerId, aiService);
+    aiQueueRuntime = createAIQueueRuntime(database, ownerId, analysisService, undefined, aiService);
+    aiJobQueue = aiQueueRuntime.queue;
+    queueReadService = aiQueueRuntime.read;
+    aiJobWorker = aiQueueRuntime.worker;
+    aiAnalysisSchedulerService = new AnalysisSchedulerService(
+      database,
+      ownerId,
+      aiService,
+      analysisService,
+      undefined,
+      aiJobQueue
+    );
+    aiAnalysisReadService = new AnalysisReadService(database, ownerId);
+    aiMemoryControlService = new AIMemoryControlService(database, ownerId);
+    playgroundEvaluationService = new PlaygroundEvaluationService(database, ownerId, aiService);
+    phase5DService = new Phase5UXDiagnosticsPackagingService(app.getAppPath());
+    aiAnalysisScheduler = new AnalysisSchedulerRuntime(aiAnalysisSchedulerService, () =>
+      aiQueueRuntime?.wake()
+    );
+    void aiQueueRuntime.start();
+    aiAnalysisScheduler.start();
+    registerQueueRuntimeLifecycle(app, aiQueueRuntime, undefined, aiAnalysisScheduler);
     configureWindowsStartup(database);
     scheduler = new ReminderScheduler(database, ownerId, deviceId, (occurrenceId) => {
       scheduler?.present(occurrenceId);
@@ -336,6 +540,7 @@ void app
     });
     powerMonitor.on('unlock-screen', () => scheduler?.recover('unlock'));
     const reporting = new ReportingService(database, ownerId);
+    widgetService = new WidgetService(database, ownerId, reporting, () => !synchronizationOnline);
     if (focusLogApiUrl) {
       const client = new AuthenticatedFocusLogClient(new URL(focusLogApiUrl), identity!);
       const synchronize = async () => {
@@ -357,12 +562,14 @@ void app
               overlay.destroy();
           }
           scheduler?.tick();
+          notifyWidget();
         } catch (error) {
           synchronizationOnline = false;
           lastSynchronizationError = error instanceof Error ? error.message : String(error);
         }
       };
       void synchronize();
+      requestSynchronization = () => void synchronize();
       setInterval(() => void synchronize(), 30_000);
       websocketClient = new FocusLogWebSocketClient(
         new URL(focusLogApiUrl),
@@ -383,6 +590,22 @@ void app
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Open FocusLog', click: () => showMainWindow() },
+        { label: 'Show widget', click: () => showWidget() },
+        { label: 'Hide widget', click: () => widgetWindow?.hide() },
+        { label: 'Quick add log', click: () => showWidgetQuickAdd() },
+        {
+          label: 'Start / stop focus',
+          click: () => {
+            const active = database
+              .prepare(
+                "SELECT id FROM focus_sessions WHERE owner_id = ? AND status IN ('ACTIVE', 'PAUSED') LIMIT 1"
+              )
+              .get(ownerId) as { id: string } | undefined;
+            const command = active ? 'stopFocusSession' : 'startFocusSession';
+            const window = showMainWindow();
+            void window.webContents.executeJavaScript(`window.focuslog.${command}()`);
+          }
+        },
         {
           label: 'Quit',
           click: () => {
@@ -397,6 +620,7 @@ void app
         }
       ])
     );
+    if (widgetSettings().enabled) showWidget();
     ipcMain.handle('focuslog:status', () => {
       const queuedOperations = (
         database
@@ -414,6 +638,73 @@ void app
         lastSynchronizationError
       };
     });
+    ipcMain.handle('focuslog:ai-state', () => ({
+      descriptors: aiService!.descriptors(),
+      profiles: aiService!.profiles(),
+      settings: aiService!.getSettings()
+    }));
+    ipcMain.handle('focuslog:save-ai-settings', (_event, settings: AISettings) =>
+      aiService!.saveSettings(settings)
+    );
+    ipcMain.handle(
+      'focuslog:save-ai-profile',
+      (
+        _event,
+        profile: Partial<ProviderProfile> & {
+          name: string;
+          providerId: ProviderProfile['providerId'];
+          credential?: string;
+        }
+      ) => aiService!.saveProfile(profile)
+    );
+    ipcMain.handle('focuslog:delete-ai-profile', (_event, profileId: string) =>
+      aiService!.removeProfile(profileId)
+    );
+    ipcMain.handle('focuslog:test-ai-profile', (_event, profileId: string) =>
+      aiService!.testConnection(profileId)
+    );
+    ipcMain.handle('focuslog:refresh-ai-models', (_event, profileId: string) =>
+      aiService!.refreshModels(profileId)
+    );
+    ipcMain.handle('focuslog:grant-ai-cloud-consent', (_event, profileId: string) => {
+      aiService!.grantCloudConsent(profileId);
+      return { granted: true };
+    });
+    registerAIQueueIpcHandlers({
+      ipcMain,
+      ai: aiService!,
+      analysis: analysisService!,
+      queue: aiJobQueue!,
+      worker: aiJobWorker!,
+      read: queueReadService!,
+      database,
+      ownerId,
+      capacity: providerCapacityFor(database),
+      scheduler: aiAnalysisSchedulerService,
+      analysisRead: aiAnalysisReadService
+    });
+    registerAIMemoryIpcHandlers({ ipcMain, service: () => aiMemoryControlService! });
+    ipcMain.handle('focuslog:ai-playground-gate-status', () =>
+      playgroundEvaluationService!.readGateStatus()
+    );
+    ipcMain.handle('focuslog:ai-playground-phase4-certification', (_event, inputs: unknown) => {
+      const attacks = Array.isArray(inputs)
+        ? inputs.filter((item): item is string => typeof item === 'string').slice(0, 50)
+        : [];
+      return playgroundEvaluationService!.certifyPhase4Gate(attacks);
+    });
+    ipcMain.handle('focuslog:ai-phase5d-certification', () => phase5DService!.certify());
+    ipcMain.handle('focuslog:ai-diagnostic-export', (_event, input: unknown) => {
+      const includePrivateContent =
+        input !== null &&
+        typeof input === 'object' &&
+        'includePrivateContent' in input &&
+        (input as { includePrivateContent?: unknown }).includePrivateContent === true;
+      return phase5DService!.diagnosticExport({ includePrivateContent });
+    });
+    ipcMain.handle('focuslog:latest-daily-analysis', (_event, day: string) =>
+      analysisService!.latestDaily(day)
+    );
     ipcMain.handle('focuslog:dashboard-summary', () => {
       const session = database
         .prepare(
@@ -445,6 +736,49 @@ void app
         completedToday: today.completedIntervals,
         missedToday: today.missedIntervals
       };
+    });
+    ipcMain.handle('focuslog:widget-snapshot', () => widgetService!.snapshot(widgetSettings()));
+    ipcMain.handle('focuslog:widget-settings', () => widgetSettings());
+    ipcMain.handle('focuslog:save-widget-settings', (_event, patch: Partial<WidgetSettings>) => {
+      if (!patch || typeof patch !== 'object') throw new Error('Widget settings are invalid.');
+      const settings = saveWidgetSettings(patch);
+      if (widgetWindow && !widgetWindow.isDestroyed()) {
+        widgetWindow.setAlwaysOnTop(settings.alwaysOnTop);
+        widgetWindow.setSize(settings.width, settings.height);
+      }
+      if (settings.enabled) showWidget();
+      else widgetWindow?.hide();
+      notifyWidget();
+      return settings;
+    });
+    ipcMain.handle('focuslog:show-widget', () => {
+      showWidget();
+      return { shown: true };
+    });
+    ipcMain.handle('focuslog:hide-widget', () => {
+      widgetWindow?.hide();
+      return { hidden: true };
+    });
+    ipcMain.handle('focuslog:widget-quick-add', () => {
+      showWidgetQuickAdd();
+      return { opened: true };
+    });
+    ipcMain.handle('focuslog:widget-create-log', async (_event, text: unknown) => {
+      if (typeof text !== 'string' || !text.trim())
+        throw new Error('Enter a short log before saving.');
+      const result = createOfflineCheckIn(database, {
+        ownerId,
+        deviceId,
+        body: text.trim(),
+        timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone
+      });
+      notifyWidget();
+      requestSynchronization?.();
+      return result;
+    });
+    ipcMain.handle('focuslog:widget-focus-action', () => {
+      showMainWindow();
+      return { action: 'open-main' };
     });
     ipcMain.handle('focuslog:reminder-preferences', () => ({
       intervalMinutes: reminderIntervalMinutes(database, ownerId),
@@ -531,6 +865,23 @@ void app
         ownerId = result.ownerId;
         ensureLocalIdentity();
       }
+      aiService = new AIService(
+        database,
+        ownerId,
+        new DesktopCredentialStore(userDataPath, electronSecretProtector)
+      );
+      analysisService = new AnalysisService(database, ownerId, aiService);
+      aiAnalysisSchedulerService = new AnalysisSchedulerService(
+        database,
+        ownerId,
+        aiService,
+        analysisService,
+        undefined,
+        aiJobQueue
+      );
+      aiAnalysisReadService = new AnalysisReadService(database, ownerId);
+      aiMemoryControlService = new AIMemoryControlService(database, ownerId);
+      phase5DService = new Phase5UXDiagnosticsPackagingService(app.getAppPath());
       scheduler?.recover('restart');
       return { ownerId: result.ownerId, createdAt: result.createdAt, kind: result.kind };
     });
@@ -585,16 +936,19 @@ void app
           if (!overlay.isDestroyed()) overlay.destroy();
         }, 220);
       }
+      notifyWidget();
       return { completed: true };
     });
     ipcMain.handle('focuslog:snooze-reminder', (_event, occurrenceId: string, minutes: number) => {
       scheduler?.snooze(occurrenceId, minutes);
       reminderOverlays.get(occurrenceId)?.destroy();
+      notifyWidget();
       return { snoozed: true };
     });
     ipcMain.handle('focuslog:emergency-dismiss-reminder', (_event, occurrenceId: string) => {
       scheduler?.emergencyDismiss(occurrenceId);
       reminderOverlays.get(occurrenceId)?.destroy();
+      notifyWidget();
       return { dismissed: true };
     });
     ipcMain.handle('focuslog:start-focus-session', () => {
@@ -648,6 +1002,7 @@ void app
           now
         );
       scheduleSessionReminder(database, id, intervalMinutes, policyJson, new Date(now));
+      notifyWidget();
       return { id, name: 'Focus session', status: 'ACTIVE' };
     });
     ipcMain.handle('focuslog:pause-focus-session', () => {
@@ -684,6 +1039,7 @@ void app
           .prepare("UPDATE focus_sessions SET status = 'PAUSED', updated_at = ? WHERE id = ?")
           .run(timestamp, active.id);
       })();
+      notifyWidget();
       return { id: active.id, status: 'PAUSED' };
     });
     ipcMain.handle('focuslog:resume-focus-session', () => {
@@ -705,6 +1061,7 @@ void app
         )
         .run(policyJson, timestamp, paused.id);
       scheduleSessionReminder(database, paused.id, intervalMinutes, policyJson);
+      notifyWidget();
       return { id: paused.id, status: 'ACTIVE' };
     });
     ipcMain.handle('focuslog:stop-focus-session', () => {
@@ -743,16 +1100,20 @@ void app
           )
           .run(timestamp, timestamp, active.id);
       })();
+      notifyWidget();
       return active;
     });
     ipcMain.handle('focuslog:create-manual-entry', (_event, text: string) => {
       if (!text.trim()) throw new Error('Manual entry cannot be empty.');
-      return createOfflineCheckIn(database, {
+      const created = createOfflineCheckIn(database, {
         ownerId,
         deviceId,
         body: text,
         timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone
       });
+      notifyWidget();
+      requestSynchronization?.();
+      return created;
     });
     ipcMain.handle('focuslog:history', (_event, queryOrFilters: string | CheckInSearchFilters) =>
       searchCheckIns(

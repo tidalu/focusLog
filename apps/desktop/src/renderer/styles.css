@@ -2573,3 +2573,267 @@ textarea {
     padding: 22px;
   }
 }
+
+.ai-settings {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.ai-form-grid,
+.ai-flag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.ai-form-grid label,
+.model-picker {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ai-form-grid input,
+.ai-form-grid select,
+.model-picker select {
+  width: 100%;
+}
+
+.ai-profile-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-profile {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.ai-profile small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.ai-analysis {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--surface-raised);
+}
+
+.ai-analysis pre {
+  font: inherit;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.analysis-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-tabs button,
+.analysis-version-list button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.analysis-tabs button.active,
+.analysis-version-list button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.analysis-results-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 14px;
+  min-width: 0;
+}
+
+.analysis-version-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.analysis-version-list button {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.analysis-version-list span,
+.analysis-disclosure dd,
+.analysis-disclosure dt {
+  overflow-wrap: anywhere;
+}
+
+.analysis-disclosure {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  margin: 12px 0;
+}
+
+.analysis-disclosure dt {
+  color: var(--muted);
+}
+
+.analysis-disclosure dd {
+  margin: 0;
+}
+
+.structured-sections {
+  display: grid;
+  gap: 10px;
+}
+
+.structured-sections section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+@media (max-width: 760px) {
+  .analysis-results-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.memory-page,
+.memory-panel,
+.status-list,
+.result-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.section-heading,
+.card-heading,
+.action-row,
+.switch-grid,
+.queue-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 0.82rem;
+}
+
+.settings-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.settings-list div,
+.queue-summary span,
+.analysis-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.settings-list dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.settings-list dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.status-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analysis-card h3 {
+  margin: 0;
+}
+
+.danger-button {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  color: var(--danger);
+}
+
+.playground-page,
+.playground-panel,
+.playground-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.playground-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.playground-sidebar {
+  display: grid;
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.playground-sidebar:focus-visible,
+.playground-sidebar button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.playground-sidebar button {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.playground-workspace section {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--panel-soft);
+}
+
+.playground-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .playground-layout {
+    grid-template-columns: 1fr;
+  }
+}

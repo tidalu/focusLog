@@ -47,6 +47,18 @@ type ParsedSearch = {
   submittedFrom?: string;
 };
 
+function sqliteObjectExists(database: DesktopDatabase, type: string, name: string): boolean {
+  const row = database
+    .prepare('SELECT 1 AS present FROM sqlite_master WHERE type = ? AND name = ?')
+    .get(type, name) as { present: number } | undefined;
+  return row != null;
+}
+
+function sqliteColumnExists(database: DesktopDatabase, table: string, column: string): boolean {
+  const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
 export function parseHistorySearch(value: string, now = new Date()): ParsedSearch {
   let text = value.trim();
   const parsed: ParsedSearch = { text: '' };
@@ -88,6 +100,9 @@ export function searchCheckIns(
   const parsedSearch = parseHistorySearch(filters.query ?? '');
   const query = ftsQuery(parsedSearch.text);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 100));
+  if (!sqliteObjectExists(database, 'table', 'log_sections')) {
+    return legacySearchCheckIns(database, ownerId, filters, parsedSearch, query, limit);
+  }
   const clauses = [
     'check_ins.owner_id = ?',
     'check_ins.deleted_at IS NULL',
@@ -200,6 +215,9 @@ export function searchCheckIns(
        LIMIT ?`
     )
     .all(...parameters) as SearchRow[];
+  if (rows.length === 0 && query) {
+    return legacySearchCheckIns(database, ownerId, filters, parsedSearch, query, limit);
+  }
   const grouped = new Map<string, CheckInSearchResult>();
   for (const row of rows) {
     const section = {
@@ -227,4 +245,125 @@ export function searchCheckIns(
     });
   }
   return [...grouped.values()].slice(0, limit);
+}
+
+function legacySearchCheckIns(
+  database: DesktopDatabase,
+  ownerId: string,
+  filters: CheckInSearchFilters,
+  parsedSearch: ParsedSearch,
+  query: string,
+  limit: number
+): CheckInSearchResult[] {
+  const hasFts = sqliteObjectExists(database, 'table', 'check_in_revisions_fts');
+  const hasCategoryPath = sqliteColumnExists(database, 'categories', 'path');
+  const categoryExpression = hasCategoryPath ? 'categories.path' : 'categories.name';
+  const clauses = [
+    'check_ins.owner_id = ?',
+    'check_ins.deleted_at IS NULL',
+    'check_in_revisions.deleted_at IS NULL'
+  ];
+  const parameters: Array<string | number> = [];
+  const withClause =
+    query && hasFts
+      ? `WITH matched_revisions AS (
+           SELECT rowid, -bm25(check_in_revisions_fts, 10.0) AS rank
+             FROM check_in_revisions_fts WHERE check_in_revisions_fts MATCH ?
+         )`
+      : '';
+  if (query && hasFts) parameters.push(query);
+  parameters.push(ownerId);
+  if (query && !hasFts) {
+    clauses.push('LOWER(check_in_revisions.body) LIKE ?');
+    parameters.push(`%${parsedSearch.text.toLocaleLowerCase()}%`);
+  }
+  if (filters.categoryId) {
+    clauses.push('check_ins.category_id = ?');
+    parameters.push(filters.categoryId);
+  }
+  if (parsedSearch.category) {
+    if (parsedSearch.category === 'uncategorized') {
+      clauses.push('check_ins.category_id IS NULL');
+    } else if (hasCategoryPath) {
+      clauses.push(
+        '(LOWER(categories.path) = ? OR LOWER(categories.path) LIKE ? OR LOWER(categories.path) LIKE ?)'
+      );
+      parameters.push(
+        parsedSearch.category,
+        `${parsedSearch.category}/%`,
+        `%/${parsedSearch.category}`
+      );
+    } else {
+      clauses.push('LOWER(categories.name) = ?');
+      parameters.push(parsedSearch.category);
+    }
+  }
+  if (parsedSearch.device) {
+    clauses.push('LOWER(devices.platform) = ?');
+    parameters.push(parsedSearch.device);
+  }
+  if (parsedSearch.minimumDelaySeconds != null) {
+    clauses.push(
+      'reminder_occurrences.scheduled_at IS NOT NULL AND (julianday(check_ins.submitted_at) - julianday(reminder_occurrences.scheduled_at)) * 86400 > ?'
+    );
+    parameters.push(parsedSearch.minimumDelaySeconds);
+  }
+  if (parsedSearch.submittedFrom) {
+    clauses.push('check_ins.submitted_at >= ?');
+    parameters.push(parsedSearch.submittedFrom);
+  }
+  if (filters.day) {
+    const bounds = reportDayBounds(filters.day, filters.timezoneId ?? 'UTC');
+    clauses.push('check_ins.submitted_at >= ? AND check_ins.submitted_at < ?');
+    parameters.push(bounds.start.toISOString(), bounds.end.toISOString());
+  }
+  if (filters.sessionId) {
+    clauses.push('check_ins.focus_session_id = ?');
+    parameters.push(filters.sessionId);
+  }
+  if (filters.tagId) {
+    clauses.push(
+      'EXISTS (SELECT 1 FROM check_in_tags WHERE check_in_tags.check_in_id = check_ins.id AND check_in_tags.tag_id = ?)'
+    );
+    parameters.push(filters.tagId);
+  }
+  parameters.push(limit);
+  type LegacySearchRow = Omit<CheckInSearchResult, 'sections'> & {
+    revisionId: string;
+  };
+  const rows = database
+    .prepare(
+      `${withClause}
+       SELECT check_ins.id, check_in_revisions.id AS revisionId, check_in_revisions.body,
+              check_ins.submitted_at AS submittedAt,
+              ${query && hasFts ? 'matched_revisions.rank' : '0.0'} AS rank,
+              COALESCE(${categoryExpression}, 'Uncategorized') AS category,
+              COALESCE(devices.platform, 'unknown') AS device,
+              CASE WHEN reminder_occurrences.scheduled_at IS NULL THEN NULL ELSE
+                MAX(0, CAST(ROUND((julianday(check_ins.submitted_at) - julianday(reminder_occurrences.scheduled_at)) * 86400) AS INTEGER))
+              END AS responseDelaySeconds,
+              check_ins.focus_session_id AS focusSessionId
+       FROM check_ins
+       JOIN check_in_revisions ON check_in_revisions.id = check_ins.current_revision_id
+       ${query && hasFts ? 'JOIN matched_revisions ON matched_revisions.rowid = check_in_revisions.rowid' : ''}
+       LEFT JOIN categories ON categories.id = check_ins.category_id
+       LEFT JOIN devices ON devices.id = check_in_revisions.author_device_id
+       LEFT JOIN reminder_occurrences ON reminder_occurrences.id = check_ins.reminder_occurrence_id
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY rank DESC, check_ins.submitted_at DESC, check_ins.id
+       LIMIT ?`
+    )
+    .all(...parameters) as LegacySearchRow[];
+  return rows.map((row) => ({
+    ...row,
+    sections: [
+      {
+        id: row.revisionId,
+        path: row.category,
+        body: row.body,
+        metadata: {},
+        position: 0
+      }
+    ]
+  }));
 }

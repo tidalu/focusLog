@@ -1,0 +1,14 @@
+# Phase 2C hardening backlog
+
+These scenarios are intentionally outside the frozen Phase 2C release scope. Core paths have executable representative coverage; this backlog tracks combinatorial and stress-level extensions.
+
+| Item                           | Risk                                                                | Existing protection                                                               | Suggested future test                                         | Priority |
+| ------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------- |
+| Pairwise policy races          | A rare ordering could produce a duplicate policy diagnostic.        | Live policy gates, final pre-provider checks, and idempotent reservation release. | Deterministic pairwise switch/consent/privacy barrier matrix. | Medium   |
+| Reservation interleavings      | Concurrent process boundaries may reveal a new accounting ordering. | Transactional reservation/settlement and lease ownership checks.                  | Property-based transaction interleaving harness.              | High     |
+| Streaming usage matrices       | Provider-specific partial usage events can vary.                    | Integer usage-bearing error settlement and immutable pricing snapshots.           | Adapter stream event replay matrices.                         | Medium   |
+| Additional process-loss points | Rare crash timing may need a dedicated reconciliation rule.         | Durable leases, result linkage, and startup recovery.                             | Fault injection before/after each durable write.              | Medium   |
+| Repeated-restart stress        | Long sequences can expose resource leaks.                           | Idempotent recovery and bounded diagnostics.                                      | File-backed restart soak test.                                | Medium   |
+| Provider error classifications | New provider codes may need normalization.                          | Safe generic normalization and breaker qualifying-code allowlist.                 | Provider contract corpus tests.                               | Low      |
+| Concurrency fairness           | Starvation may appear under sustained mixed priority load.          | Priority queue, cancellation removal, and idempotent release.                     | Long-running fairness/load simulation.                        | Low      |
+| Fuzz/property testing          | Unexpected serialized input could find validation gaps.             | IPC validation and renderer-safe projections.                                     | Fuzzed IPC and snapshot payload tests.                        | Low      |

@@ -3,8 +3,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarPage } from './CalendarPage';
 import { HistoryPage } from './HistoryPage';
 import { ReportsPage } from './ReportsPage';
+import { AISettingsPage } from './AISettingsPage';
+import { AIMemoryPage } from './AIMemoryPage';
+import { AIPlaygroundPage } from './AIPlaygroundPage';
 
-type Page = 'Dashboard' | 'History' | 'Reports' | 'Calendar' | 'Settings' | 'Pair device';
+type Page =
+  | 'Dashboard'
+  | 'History'
+  | 'Reports'
+  | 'Calendar'
+  | 'Memory'
+  | 'Playground'
+  | 'Settings'
+  | 'Pair device';
 type IconName =
   | 'calendar'
   | 'check'
@@ -23,13 +34,16 @@ type IconName =
 type DesktopStatus = Awaited<ReturnType<Window['focuslog']['getStatus']>>;
 type DashboardSummary = Awaited<ReturnType<Window['focuslog']['getDashboardSummary']>>;
 type ReminderPreferences = Awaited<ReturnType<Window['focuslog']['getReminderPreferences']>>;
+type WidgetSettings = Awaited<ReturnType<Window['focuslog']['widgetSettings']>>;
 const navigation: Array<{ page: Page; label: string; icon: IconName; shortcut: number }> = [
   { page: 'Dashboard', label: 'Today', icon: 'dashboard', shortcut: 1 },
   { page: 'History', label: 'History', icon: 'history', shortcut: 2 },
   { page: 'Reports', label: 'Reports', icon: 'reports', shortcut: 3 },
   { page: 'Calendar', label: 'Calendar', icon: 'calendar', shortcut: 4 },
-  { page: 'Settings', label: 'Settings', icon: 'settings', shortcut: 5 },
-  { page: 'Pair device', label: 'Pair device', icon: 'devices', shortcut: 6 }
+  { page: 'Memory', label: 'Memory', icon: 'search', shortcut: 5 },
+  { page: 'Playground', label: 'Playground', icon: 'play', shortcut: 6 },
+  { page: 'Settings', label: 'Settings', icon: 'settings', shortcut: 7 },
+  { page: 'Pair device', label: 'Pair device', icon: 'devices', shortcut: 8 }
 ];
 
 function Icon({ name, size = 19 }: { name: IconName; size?: number }): React.JSX.Element {
@@ -162,6 +176,7 @@ export function App(): React.JSX.Element {
   const [notice, setNotice] = useState('');
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string } | null>(null);
   const [customInterval, setCustomInterval] = useState('15');
+  const [widgetSettings, setWidgetSettings] = useState<WidgetSettings | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const refreshCore = useCallback(async () => {
@@ -176,6 +191,7 @@ export function App(): React.JSX.Element {
     setStartup(nextStatus.startupEnabled);
     setCloseBehavior(nextStatus.closeBehavior);
     setCustomInterval(String(nextPreferences.intervalMinutes));
+    setWidgetSettings(await window.focuslog.widgetSettings());
   }, []);
 
   useEffect(() => {
@@ -476,6 +492,10 @@ export function App(): React.JSX.Element {
 
         {page === 'Calendar' && <CalendarPage />}
 
+        {page === 'Memory' && <AIMemoryPage notify={setNotice} />}
+
+        {page === 'Playground' && <AIPlaygroundPage notify={setNotice} />}
+
         {page === 'Settings' && (
           <div className="page settings-page">
             <PageTitle
@@ -577,6 +597,95 @@ export function App(): React.JSX.Element {
 
             <section className="panel setting-section">
               <div className="setting-copy">
+                <span className="section-label">Desktop overlay</span>
+                <h2>FocusLog widget</h2>
+                <p>
+                  A lightweight FocusLog window, not the Windows Widgets-panel integration. It reads
+                  only the encrypted local profile and can stay available offline.
+                </p>
+              </div>
+              {widgetSettings && (
+                <div className="custom-interval">
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={widgetSettings.enabled}
+                      onChange={async (event) =>
+                        setWidgetSettings(
+                          await window.focuslog.saveWidgetSettings({
+                            enabled: event.target.checked
+                          })
+                        )
+                      }
+                    />
+                    <span />
+                    <span>Enable desktop widget</span>
+                  </label>
+                  <label>
+                    <span>Widget view</span>
+                    <select
+                      value={widgetSettings.mode}
+                      onChange={async (event) =>
+                        setWidgetSettings(
+                          await window.focuslog.saveWidgetSettings({ mode: event.target.value })
+                        )
+                      }
+                    >
+                      <option value="minimal">Minimal</option>
+                      <option value="productivity">Productivity</option>
+                      <option value="insight">AI insight</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Privacy</span>
+                    <select
+                      value={widgetSettings.privacy}
+                      onChange={async (event) =>
+                        setWidgetSettings(
+                          await window.focuslog.saveWidgetSettings({ privacy: event.target.value })
+                        )
+                      }
+                    >
+                      <option value="hidden">Hide private content</option>
+                      <option value="redacted">Redacted saved insight</option>
+                      <option value="full">Full saved insight</option>
+                    </select>
+                  </label>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={widgetSettings.alwaysOnTop}
+                      onChange={async (event) =>
+                        setWidgetSettings(
+                          await window.focuslog.saveWidgetSettings({
+                            alwaysOnTop: event.target.checked
+                          })
+                        )
+                      }
+                    />
+                    <span />
+                    <span>Keep above other windows</span>
+                  </label>
+                  <div className="button-row">
+                    <button
+                      className="secondary-button"
+                      onClick={() => void window.focuslog.showWidget()}
+                    >
+                      Show widget
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => void window.focuslog.openWidgetQuickAdd()}
+                    >
+                      Quick add log
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="panel setting-section">
+              <div className="setting-copy">
                 <span className="section-label">Private by design</span>
                 <h2>Encrypted backup and export</h2>
                 <p>
@@ -652,6 +761,8 @@ export function App(): React.JSX.Element {
                 Delete all data
               </button>
             </section>
+
+            <AISettingsPage notify={setNotice} />
           </div>
         )}
 

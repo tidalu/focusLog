@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "seed": "focuslog-phase3-f-200k-v1",
+  "logCount": 200000,
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "timingsMs": {
+    "startupAndMigration": 6.15,
+    "syntheticLogGenerationAndInsert": 53795.73,
+    "chunkGenerationIndexingAndVectorPersistence": 189627.15,
+    "factBatchingAndGraphThroughput": 36.82,
+    "semanticHybridFilteredQueries": 25.2,
+    "stalenessPropagation": 1344.14,
+    "incrementalEditReindex": 2397.05,
+    "deletionCleanup": 1290.67,
+    "rendererSafeProjection": 1461.27,
+    "restartReopenAndInitialize": 427.97
+  },
+  "memory": {
+    "rssBytes": 98586624,
+    "heapUsedBytes": 6611792
+  },
+  "database": {
+    "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-wkMi39\\phase3-200k.sqlite",
+    "bytes": 401608704
+  },
+  "counts": {
+    "logs": 200000,
+    "chunks": 200000,
+    "activeVectors": 199997,
+    "facts": 3,
+    "graphNodes": 6,
+    "graphEdges": 3,
+    "staleMemory": 2,
+    "logsAfterReopen": 200000
+  },
+  "thresholds": {
+    "startupAndMigration": 5000,
+    "syntheticLogGenerationAndInsert": 90000,
+    "chunkGenerationIndexingAndVectorPersistence": 180000,
+    "semanticHybridFilteredQueries": 3000,
+    "restartReopenAndInitialize": 5000
+  },
+  "queryPlans": [
+    {
+      "name": "broad-local-memory",
+      "items": 2,
+      "staleDisclosure": false,
+      "exclusionReasons": []
+    },
+    {
+      "name": "focused-evidence",
+      "items": 15,
+      "staleDisclosure": false,
+      "exclusionReasons": [
+        "Excluded raw_log:log-198407 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-198239 because it exceeded the remaining token budget.",
+        "Excluded raw_log:log-198071 because it exceeded the remaining token budget."
+      ]
+    }
+  ],
+  "security": {
+    "secretFreeDiagnostics": true,
+    "playgroundExcluded": true,
+    "deletedExcluded": true,
+    "noGenerationModelCall": true
+  }
+}

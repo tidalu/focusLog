@@ -7,8 +7,9 @@
   "type": "module",
   "main": "./dist-electron/main.js",
   "scripts": {
-    "build": "pnpm run build:main && pnpm run build:renderer",
+    "build": "pnpm run build:shared && pnpm run build:main && pnpm run build:renderer",
     "package:win": "pnpm run build && pnpm run rebuild:native:electron && electron-builder --win nsis",
+    "build:shared": "pnpm --filter @focuslog/shared-utils build",
     "rebuild:native:node": "pnpm rebuild better-sqlite3-multiple-ciphers",
     "rebuild:native:electron": "electron-rebuild --force --which-module better-sqlite3-multiple-ciphers --arch x64",
     "clean:main": "node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\"",
@@ -18,10 +19,11 @@
     "prestart": "pnpm run rebuild:native:electron",
     "start": "electron .",
     "lint": "eslint src electron",
+    "pretypecheck": "pnpm run build:shared",
     "typecheck": "tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.renderer.json",
-    "pretest": "pnpm run rebuild:native:node",
+    "pretest": "pnpm run build:shared && pnpm run rebuild:native:node",
     "test": "vitest run --config vitest.config.ts",
-    "test:database": "vitest run --config vitest.config.ts electron/database"
+    "test:database": "pnpm run rebuild:native:node && vitest run --config vitest.config.ts electron/database"
   },
   "dependencies": {
     "@focuslog/shared-utils": "workspace:*",
@@ -51,6 +53,7 @@
     "files": [
       "dist/renderer/**",
       "dist-electron/**",
+      "prompts/**",
       "package.json"
     ],
     "directories": {
