@@ -79,7 +79,8 @@ jobs:
         with:
           channel: stable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @focuslog/backend build
+      - run: pnpm --filter @focuslog/backend prisma:generate
+      - run: pnpm --filter @focuslog/backend... build
       - run: pnpm --filter @focuslog/desktop build
       - run: pnpm mobile:analyze
       - run: pnpm mobile:test

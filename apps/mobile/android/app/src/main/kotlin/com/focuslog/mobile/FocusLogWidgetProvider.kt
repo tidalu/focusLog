@@ -17,10 +17,10 @@ import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONObject
 
-private const val PREFS = "focuslog_widget"
-private const val SNAPSHOT = "snapshot"
+internal const val PREFS = "focuslog_widget"
+internal const val SNAPSHOT = "snapshot"
 private const val ACTION_REFRESH = "com.focuslog.mobile.WIDGET_REFRESH"
-private const val ACTION_QUICK_ADD = "com.focuslog.mobile.action.QUICK_ADD"
+internal const val ACTION_QUICK_ADD = "com.focuslog.mobile.action.QUICK_ADD"
 
 internal data class WidgetOptions(
     val mode: String = "productivity",
