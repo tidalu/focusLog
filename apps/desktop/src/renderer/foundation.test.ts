@@ -87,6 +87,24 @@ describe('desktop foundation', () => {
     expect(executableScript).toContain('button.disabled=count<20');
   });
 
+  it('keeps the reminder response field interactive when overlay startup helpers fail', () => {
+    const mainSource = readFileSync(resolve(import.meta.dirname, '../../electron/main.ts'), 'utf8');
+    const overlaySource = mainSource.slice(
+      mainSource.indexOf('const html = `<!doctype html>'),
+      mainSource.indexOf('overlay.loadURL')
+    );
+
+    expect(overlaySource).toContain('pointer-events:none;z-index:0');
+    expect(overlaySource).toContain('main{position:relative;z-index:1;');
+    expect(overlaySource).toContain("field.addEventListener('beforeinput'");
+    expect(overlaySource).toContain("field.addEventListener('keyup',update)");
+    expect(overlaySource).toContain("field.addEventListener('change',update)");
+    expect(overlaySource).toContain('field.focus();update();');
+    expect(overlaySource).toContain('Promise.resolve(window.focuslog.searchFilters())');
+    expect(overlaySource).toContain('Promise.resolve(window.focuslog.getDraft(id))');
+    expect(overlaySource).toContain('.catch(()=>{field.focus();update()})');
+  });
+
   it('uses journal timelines, analytics dashboards, and an in-place calendar drawer', () => {
     const historySource = readFileSync(resolve(import.meta.dirname, 'HistoryPage.tsx'), 'utf8');
     const reportsSource = readFileSync(resolve(import.meta.dirname, 'ReportsPage.tsx'), 'utf8');

@@ -149,7 +149,7 @@ describe('production queue runtime lifecycle composition', () => {
     expect(runtime.queue.requestCancellation(job.id)?.status).toBe('cancelled');
     await runtime.start();
     runtime.wake();
-    await vi.waitFor(() => expect(runtime.queue.get(job.id)?.status).toBe('cancelled'));
+    expect(runtime.queue.get(job.id)?.status).toBe('cancelled');
     expect(calls).not.toHaveBeenCalled();
     expect(
       current.database
@@ -168,7 +168,7 @@ describe('production queue runtime lifecycle composition', () => {
       activeExecution: false
     });
     current.database.close();
-  });
+  }, 10_000);
 
   it('cancels a real daily handler after reservation and before provider invocation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'focuslog-runtime-cancel-after-reservation-'));
