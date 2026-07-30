@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/focuslog_mobile_design.dart';
 import 'mobile_ai_repository.dart';
 
 class MobileAIMemoryScreen extends StatefulWidget {
@@ -61,33 +62,16 @@ class _MobileAIMemoryScreenState extends State<MobileAIMemoryScreen> {
 
   @override
   Widget build(BuildContext context) => Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'AI memory',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    'Synchronized semantic search, facts, graph, and Q&A.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Refresh memory',
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-            ),
-          ]),
+        FocusLogPageHeader(
+          eyebrow: 'Local-first derived memory',
+          title: 'AI memory',
+          description:
+              'Synchronized semantic search, facts, graph evidence, and Q&A without raw vectors or prompts.',
+          action: IconButton(
+            tooltip: 'Refresh memory',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ),
         Expanded(
           child: FutureBuilder<_MemoryViewModel>(
@@ -114,7 +98,7 @@ class _MobileAIMemoryScreenState extends State<MobileAIMemoryScreen> {
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [

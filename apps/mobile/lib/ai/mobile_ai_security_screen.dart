@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/focuslog_mobile_design.dart';
 import 'mobile_ai_repository.dart';
 
 class MobileAISecurityScreen extends StatefulWidget {
@@ -37,33 +38,16 @@ class _MobileAISecurityScreenState extends State<MobileAISecurityScreen> {
 
   @override
   Widget build(BuildContext context) => Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'AI safety',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    'Security, accessibility, resources, and packaging readiness.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Refresh AI safety review',
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-            ),
-          ]),
+        FocusLogPageHeader(
+          eyebrow: 'Private by design',
+          title: 'AI safety',
+          description:
+              'Security, accessibility, resource limits, packaging readiness, and bounded diagnostics.',
+          action: IconButton(
+            tooltip: 'Refresh AI safety review',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ),
         Expanded(
           child: FutureBuilder<_MobileAISecurityViewModel>(
@@ -91,7 +75,7 @@ class _MobileAISecurityScreenState extends State<MobileAISecurityScreen> {
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [

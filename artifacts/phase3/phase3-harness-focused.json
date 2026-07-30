@@ -8,24 +8,24 @@
     "arch": "x64"
   },
   "timingsMs": {
-    "startupAndMigration": 3.36,
-    "syntheticLogGenerationAndInsert": 128.88,
-    "chunkGenerationIndexingAndVectorPersistence": 624.57,
-    "factBatchingAndGraphThroughput": 19.13,
-    "semanticHybridFilteredQueries": 8.04,
-    "stalenessPropagation": 40.34,
-    "incrementalEditReindex": 2.51,
-    "deletionCleanup": 2.06,
-    "rendererSafeProjection": 3.51,
-    "restartReopenAndInitialize": 26.25
+    "startupAndMigration": 65.6,
+    "syntheticLogGenerationAndInsert": 1081.47,
+    "chunkGenerationIndexingAndVectorPersistence": 3537,
+    "factBatchingAndGraphThroughput": 138.87,
+    "semanticHybridFilteredQueries": 70.39,
+    "stalenessPropagation": 42.12,
+    "incrementalEditReindex": 16.03,
+    "deletionCleanup": 14.03,
+    "rendererSafeProjection": 28.41,
+    "restartReopenAndInitialize": 86.84
   },
   "memory": {
-    "rssBytes": 85475328,
-    "heapUsedBytes": 18894560
+    "rssBytes": 85753856,
+    "heapUsedBytes": 19264488
   },
   "database": {
-    "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-Ep2PEO\\phase3-200k.sqlite",
-    "bytes": 5410816
+    "path": "C:\\Users\\ulugi\\AppData\\Local\\Temp\\focuslog-phase3-J4NVwj\\phase3-200k.sqlite",
+    "bytes": 5386240
   },
   "counts": {
     "logs": 2000,

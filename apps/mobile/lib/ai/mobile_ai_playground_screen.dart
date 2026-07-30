@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/focuslog_mobile_design.dart';
 import 'mobile_ai_repository.dart';
 
 class MobileAIPlaygroundScreen extends StatefulWidget {
@@ -43,33 +44,16 @@ class _MobileAIPlaygroundScreenState extends State<MobileAIPlaygroundScreen> {
 
   @override
   Widget build(BuildContext context) => Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'AI Playground',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    'Desktop-only execution with mobile-safe shared metadata.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Refresh Playground',
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-            ),
-          ]),
+        FocusLogPageHeader(
+          eyebrow: 'Isolated experimentation',
+          title: 'AI Playground',
+          description:
+              'Desktop-only execution with mobile-safe sessions, evaluations, diagnostics, and exchange metadata.',
+          action: IconButton(
+            tooltip: 'Refresh Playground',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
         ),
         Expanded(
           child: FutureBuilder<_PlaygroundViewModel>(
@@ -89,7 +73,7 @@ class _MobileAIPlaygroundScreenState extends State<MobileAIPlaygroundScreen> {
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../design/focuslog_mobile_design.dart';
 import 'mobile_ai_repository.dart';
 
 const mobileAiAnalysisLevels = <String>[
@@ -156,34 +157,15 @@ class _MobileAIAnalysisScreenState extends State<MobileAIAnalysisScreen>
   @override
   Widget build(BuildContext context) => Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'AI analyses',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      Text(
-                        'Desktop-owned execution, mobile-safe results.',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Refresh AI analyses',
-                  onPressed: _refresh,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
+          FocusLogPageHeader(
+            eyebrow: 'Desktop-owned execution',
+            title: 'AI analyses',
+            description:
+                'Mobile-safe daily through yearly results, schedules, queue state, and manual actions.',
+            action: IconButton(
+              tooltip: 'Refresh AI analyses',
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh),
             ),
           ),
           TabBar(
@@ -214,15 +196,15 @@ class _MobileAIAnalysisScreenState extends State<MobileAIAnalysisScreen>
                   );
                 }
                 final data = snapshot.data!;
-                return RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                       _ExecutorCard(executor: data.executor),
                       const SizedBox(height: 12),
                       _PolicyBudgetCard(

@@ -20,6 +20,7 @@ import 'ai/mobile_ai_security_screen.dart';
 import 'data/database/app_database.dart';
 import 'data/journal_category.dart';
 import 'data/mobile_repository.dart';
+import 'design/focuslog_mobile_design.dart';
 import 'identity/device_identity.dart';
 import 'identity/focuslog_api_client.dart';
 import 'reminders/android_reminder_scheduler.dart';
@@ -99,46 +100,20 @@ class FocusLogApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DynamicColorBuilder(
         builder: (lightDynamic, darkDynamic) {
-          const seed = Color(0xff5b5bd6);
-          ThemeData theme(ColorScheme colors) => ThemeData(
-                colorScheme: colors,
-                useMaterial3: true,
-                scaffoldBackgroundColor: colors.surface,
-                cardTheme: CardThemeData(
-                  elevation: 0,
-                  color: colors.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    side: BorderSide(color: colors.outlineVariant),
-                  ),
-                ),
-                inputDecorationTheme: InputDecorationTheme(
-                  filled: true,
-                  fillColor: colors.surfaceContainerLow,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                filledButtonTheme: FilledButtonThemeData(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              );
+          ThemeData theme(ColorScheme colors) =>
+              FocusLogMobileDesign.theme(colors);
 
           return MaterialApp(
             title: 'FocusLog',
             debugShowCheckedModeBanner: false,
             theme: theme(lightDynamic ??
                 ColorScheme.fromSeed(
-                    seedColor: seed, brightness: Brightness.light)),
+                    seedColor: FocusLogMobileDesign.seed,
+                    brightness: Brightness.light)),
             darkTheme: theme(darkDynamic ??
                 ColorScheme.fromSeed(
-                    seedColor: seed, brightness: Brightness.dark)),
+                    seedColor: FocusLogMobileDesign.seed,
+                    brightness: Brightness.dark)),
             themeMode: ThemeMode.system,
             home: FocusLogHome(
                 repository: repository,
@@ -366,13 +341,17 @@ class _FocusLogHomeState extends State<FocusLogHome>
     ];
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 760;
-      final content = SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          child: KeyedSubtree(key: ValueKey(_index), child: pages[_index]),
+      final content = FocusLogGradientScaffold(
+        child: SafeArea(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: KeyedSubtree(key: ValueKey(_index), child: pages[_index]),
+          ),
         ),
       );
       return Scaffold(
+        extendBody: !wide,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         appBar: wide
             ? null
             : AppBar(
@@ -394,34 +373,52 @@ class _FocusLogHomeState extends State<FocusLogHome>
               ),
         body: wide
             ? Row(children: [
-                NavigationRail(
-                  extended: constraints.maxWidth >= 1050,
-                  selectedIndex: _index,
-                  leading: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: _BrandMark(),
-                  ),
-                  onDestinationSelected: (value) =>
-                      setState(() => _index = value),
-                  destinations: [
-                    for (final item in destinations)
-                      NavigationRailDestination(
-                        icon: item.icon,
-                        label: Text(item.label),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerLowest
+                        .withAlpha((255 * 0.92).round()),
+                    border: Border(
+                      right: BorderSide(
+                        color: Theme.of(context).colorScheme.outlineVariant,
                       ),
-                  ],
+                    ),
+                  ),
+                  child: NavigationRail(
+                    extended: constraints.maxWidth >= 1050,
+                    selectedIndex: _index,
+                    leading: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: _BrandMark(),
+                    ),
+                    onDestinationSelected: (value) =>
+                        setState(() => _index = value),
+                    destinations: [
+                      for (final item in destinations)
+                        NavigationRailDestination(
+                          icon: item.icon,
+                          label: Text(item.label),
+                        ),
+                    ],
+                  ),
                 ),
-                const VerticalDivider(width: 1),
                 Expanded(child: content),
               ])
             : content,
         bottomNavigationBar: wide
             ? null
-            : NavigationBar(
-                selectedIndex: _index,
-                onDestinationSelected: (value) =>
-                    setState(() => _index = value),
-                destinations: destinations,
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: NavigationBar(
+                    selectedIndex: _index,
+                    onDestinationSelected: (value) =>
+                        setState(() => _index = value),
+                    destinations: destinations,
+                  ),
+                ),
               ),
       );
     });
@@ -449,10 +446,27 @@ class _BrandMark extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(10),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Theme.of(context).colorScheme.primary,
+                FocusLogMobileDesign.mint,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(13),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withAlpha((255 * 0.28).round()),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          child: Icon(Icons.adjust,
+          child: Icon(Icons.bar_chart_rounded,
               size: 20, color: Theme.of(context).colorScheme.onPrimary),
         ),
         const SizedBox(width: 10),
@@ -518,10 +532,30 @@ class _WidgetQuickEntryState extends State<_WidgetQuickEntry> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Quick add log')),
-        body: SafeArea(
+        body: FocusLogGradientScaffold(
+          child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              FocusLogCard(
+                accent: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.edit_note,
+                        color: Theme.of(context).colorScheme.onPrimary),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Capture the thread before it fades.',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               Text('Use <category> at the start to organize this log.',
                   style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 14),
@@ -549,6 +583,7 @@ class _WidgetQuickEntryState extends State<_WidgetQuickEntry> {
                   child: const Text('Cancel')),
             ]),
           ),
+        ),
         ),
       );
 }
@@ -713,19 +748,20 @@ class _DashboardState extends State<_Dashboard> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
               children: [
-                Text(_greeting(), style: Theme.of(context).textTheme.bodyLarge),
-                Text(
-                  session == null ? 'Ready when you are.' : 'Stay in flow.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .displaySmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                FocusLogPageHeader(
+                  eyebrow: _greeting(),
+                  title:
+                      session == null ? 'Ready when you are.' : 'Stay in flow.',
+                  description:
+                      'Make the next interval count with local, offline-ready check-ins.',
                 ),
                 const SizedBox(height: 22),
-                Card(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(22),
+                FocusLogCard(
+                  accent: true,
+                  padding: const EdgeInsets.all(24),
+                  child: DefaultTextStyle.merge(
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onPrimary),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -734,9 +770,7 @@ class _DashboardState extends State<_Dashboard> {
                             session == null
                                 ? Icons.pause_circle_outline
                                 : Icons.bolt,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -748,13 +782,24 @@ class _DashboardState extends State<_Dashboard> {
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: Theme.of(context).colorScheme.onPrimary,
+                                ),
                           ),
                         ]),
                         const SizedBox(height: 18),
                         Text(
                           due ? 'CHECK-IN DUE' : 'NEXT CHECK-IN',
-                          style: Theme.of(context).textTheme.labelMedium,
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary
+                                        .withAlpha((255 * 0.76).round()),
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.4,
+                                  ),
                         ),
                         Text(
                           due ? 'Now' : countdown,
@@ -762,12 +807,23 @@ class _DashboardState extends State<_Dashboard> {
                               .textTheme
                               .displayMedium
                               ?.copyWith(
+                                  color:
+                                      Theme.of(context).colorScheme.onPrimary,
                                   fontWeight: FontWeight.w800,
                                   fontFeatures: const [
                                 FontFeature.tabularFigures()
                               ]),
                         ),
-                        Text('Every ${data?.interval ?? 15} minutes'),
+                        Text(
+                          'Every ${data?.interval ?? 15} minutes',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary
+                                        .withAlpha((255 * 0.72).round()),
+                                  ),
+                        ),
                         const SizedBox(height: 20),
                         if (session == null)
                           SizedBox(
@@ -852,7 +908,7 @@ class _DashboardState extends State<_Dashboard> {
                 Text('Quick actions',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 10),
-                Card(
+                FocusLogCard(
                   child: ListTile(
                     leading: const Icon(Icons.edit_note),
                     title: const Text('Log what you are doing'),
@@ -1010,80 +1066,91 @@ class _ReminderScreenState extends State<_ReminderScreen>
         if (!didPop && !_completed) _focusNode.requestFocus();
       },
       child: Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 680),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Icon(Icons.adjust,
-                        size: 44, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(height: 28),
-                    Text(
-                      'What did you accomplish during the last $_interval minutes?',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context)
-                          .textTheme
-                          .displaySmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 28),
-                    TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      autofocus: true,
-                      minLines: 7,
-                      maxLines: 12,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        hintText:
-                            '<study><leetcode>\nDescribe what you completed or learned.',
-                        helperText: _length < 20
-                            ? '${20 - _length} more characters required'
-                            : 'Ready to submit',
-                        suffixText: '$_length / 20',
-                      ),
-                    ),
-                    if (suggestions.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final category in suggestions)
-                            ActionChip(
-                              label: Text('<${category.path}>'),
-                              onPressed: () {
-                                _controller.text = _applyCategorySuggestion(
-                                    _controller.text, category.leaf);
-                                _controller.selection = TextSelection.collapsed(
-                                    offset: _controller.text.length);
-                                _focusNode.requestFocus();
-                              },
-                            ),
+        backgroundColor: Colors.transparent,
+        body: FocusLogGradientScaffold(
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: FocusLogCard(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Icon(Icons.adjust,
+                            size: 44,
+                            color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(height: 28),
+                        Text(
+                          'What did you accomplish during the last $_interval minutes?',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .displaySmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 28),
+                        TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          autofocus: true,
+                          minLines: 7,
+                          maxLines: 12,
+                          textInputAction: TextInputAction.newline,
+                          decoration: InputDecoration(
+                            hintText:
+                                '<study><leetcode>\nDescribe what you completed or learned.',
+                            helperText: _length < 20
+                                ? '${20 - _length} more characters required'
+                                : 'Ready to submit',
+                            suffixText: '$_length / 20',
+                          ),
+                        ),
+                        if (suggestions.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final category in suggestions)
+                                ActionChip(
+                                  label: Text('<${category.path}>'),
+                                  onPressed: () {
+                                    _controller.text =
+                                        _applyCategorySuggestion(
+                                            _controller.text, category.leaf);
+                                    _controller.selection =
+                                        TextSelection.collapsed(
+                                            offset: _controller.text.length);
+                                    _focusNode.requestFocus();
+                                  },
+                                ),
+                            ],
+                          ),
                         ],
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _length >= 20 && !_submitting ? _submit : null,
-                      child: _submitting
-                          ? const SizedBox.square(
-                              dimension: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Submit check-in'),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed:
+                              _length >= 20 && !_submitting ? _submit : null,
+                          child: _submitting
+                              ? const SizedBox.square(
+                                  dimension: 22,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Submit check-in'),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Your unfinished response is saved on this device.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Your unfinished response is saved on this device.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1129,16 +1196,14 @@ class _HistoryState extends State<_History> {
           return CustomScrollView(
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
                 sliver: SliverList.list(children: [
-                  Text('Journal',
-                      style: Theme.of(context)
-                          .textTheme
-                          .displaySmall
-                          ?.copyWith(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                  Text('Your days, remembered in context.',
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  const FocusLogPageHeader(
+                    eyebrow: 'Your journal',
+                    title: 'History',
+                    description:
+                        'A quiet chronological record of where your attention went.',
+                  ),
                   const SizedBox(height: 20),
                   TextField(
                     decoration: const InputDecoration(
@@ -1197,7 +1262,7 @@ class _HistoryState extends State<_History> {
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
                   sliver: SliverList.list(children: [
                     for (final group in grouped.entries) ...[
                       Padding(
@@ -1483,9 +1548,15 @@ class _ReportsState extends State<_Reports> {
       future: _report,
       builder: (context, snapshot) {
         final report = snapshot.data;
-        return ListView(padding: const EdgeInsets.all(20), children: [
-          Text('Daily insight · $_day',
-              style: Theme.of(context).textTheme.headlineMedium),
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
+          children: [
+          FocusLogPageHeader(
+            eyebrow: 'Daily reflection',
+            title: _day,
+            description:
+                'Patterns and signals from your day without turning your journal into a spreadsheet.',
+          ),
           Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(
               onPressed: _chooseDay,
@@ -1670,8 +1741,10 @@ class _HourlyActivity extends StatelessWidget {
                             color: Theme.of(context)
                                 .colorScheme
                                 .primary
-                                .withValues(
-                                    alpha: values[hour] == 0 ? .09 : .75),
+                                .withAlpha(
+                                  (255 * (values[hour] == 0 ? .09 : .75))
+                                      .round(),
+                                ),
                             borderRadius: BorderRadius.circular(5),
                           ),
                         ),
@@ -1859,15 +1932,15 @@ class _HeatmapState extends State<_Heatmap> {
         final activeDays = days.where((day) => day.value > 0).length;
         final totalEntries =
             days.fold<int>(0, (total, day) => total + day.value);
-        return ListView(padding: const EdgeInsets.all(20), children: [
-          Text('Your year in focus',
-              style: Theme.of(context)
-                  .textTheme
-                  .displaySmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text('Every square is a day in your journal.',
-              style: Theme.of(context).textTheme.bodyLarge),
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
+          children: [
+          FocusLogPageHeader(
+            eyebrow: 'Your year in focus',
+            title: '$_year calendar',
+            description:
+                'Every day stays visible. Intensity reveals the rhythm without hiding quieter seasons.',
+          ),
           Wrap(spacing: 8, runSpacing: 8, children: [
             IconButton(
                 tooltip: 'Previous year',
@@ -2227,10 +2300,14 @@ class _SettingsState extends State<_Settings> {
 
   @override
   Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
         children: [
-          Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 12),
+          const FocusLogPageHeader(
+            eyebrow: 'Personalize',
+            title: 'Settings',
+            description:
+                'Tune reminder rhythm, appearance, startup, pairing, and private data controls.',
+          ),
           Text('Check-in interval',
               style: Theme.of(context).textTheme.titleLarge),
           Text('Current interval: $_interval minutes'),
@@ -2412,11 +2489,13 @@ class _PairingState extends State<_Pairing> {
 
   @override
   Widget build(BuildContext context) =>
-      ListView(padding: const EdgeInsets.all(20), children: [
-        Text('Pair trusted device',
-            style: Theme.of(context).textTheme.headlineMedium),
-        const Text(
-            'FocusLog has one owner and trusted devices. Pairing needs approval on the owner desktop.'),
+      ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 108), children: [
+        const FocusLogPageHeader(
+          eyebrow: 'Trusted devices',
+          title: 'Pair device',
+          description:
+              'FocusLog has one owner and trusted devices. Pairing needs approval on the owner desktop.',
+        ),
         TextField(
             controller: _endpoint,
             keyboardType: TextInputType.url,
