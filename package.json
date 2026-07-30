@@ -15,9 +15,9 @@
     "contracts:check": "node scripts/generate-contracts.mjs --check",
     "traceability:generate": "node scripts/generate-traceability.mjs",
     "traceability:check": "node scripts/generate-traceability.mjs --check",
-    "mobile:analyze": "flutter analyze --cwd apps/mobile",
-    "mobile:test": "flutter test --cwd apps/mobile",
-    "mobile:build": "flutter build apk --debug --project-dir apps/mobile"
+    "mobile:analyze": "cd apps/mobile && flutter analyze",
+    "mobile:test": "cd apps/mobile && flutter test",
+    "mobile:build": "cd apps/mobile && flutter build apk --debug"
   },
   "devDependencies": {
     "@eslint/js": "^9.24.0",
