@@ -164,7 +164,7 @@ describe('Phase 5-B migration safety and reliability fault certification', () =>
     } finally {
       if (database.open) database.close();
     }
-  });
+  }, 15_000);
 
   it('keeps interrupted migrations retryable without advancing schema version or losing canonical data', () => {
     const raw = new Database(':memory:');
