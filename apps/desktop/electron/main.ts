@@ -425,7 +425,20 @@ function createReminderOverlay(occurrenceId: string): void {
   // The HTML is a template literal, so regex `\n` escapes become real line
   // breaks before Electron parses the embedded script. Restore the escapes so
   // the overlay controller can parse and enable submission after 20 characters.
-  const executableHtml = html.replaceAll(String.fromCharCode(10), String.raw`\n`);
+  const interactiveHtml = html
+    .replace(
+      'body::before{content:"";position:fixed;inset:0;background:rgba(5,6,10,.42);backdrop-filter:blur(18px)}main{position:relative;',
+      'body::before{content:"";position:fixed;inset:0;background:rgba(5,6,10,.42);backdrop-filter:blur(18px);pointer-events:none;z-index:0}main{position:relative;z-index:1;'
+    )
+    .replace(
+      "field.addEventListener('input',update);",
+      "field.addEventListener('beforeinput',()=>setTimeout(update,0));field.addEventListener('input',update);field.addEventListener('keyup',update);field.addEventListener('change',update);field.focus();update();"
+    )
+    .replace(
+      'window.focuslog.searchFilters().then(filters=>{categories=filters.categories.map(category=>category.name);renderSuggestions()});window.focuslog.getDraft(id).then(text=>{field.value=text;update();field.focus();field.setSelectionRange(field.value.length,field.value.length)});',
+      'Promise.resolve(window.focuslog.searchFilters()).then(filters=>{categories=filters.categories.map(category=>category.name);renderSuggestions()}).catch(()=>{categories=[]});Promise.resolve(window.focuslog.getDraft(id)).then(text=>{field.value=text;update();field.focus();field.setSelectionRange(field.value.length,field.value.length)}).catch(()=>{field.focus();update()});'
+    );
+  const executableHtml = interactiveHtml.replaceAll(String.fromCharCode(10), String.raw`\n`);
   void overlay.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(executableHtml)}`);
   overlay.once('ready-to-show', () => {
     overlay.show();
