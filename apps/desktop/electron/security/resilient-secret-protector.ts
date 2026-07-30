@@ -56,15 +56,12 @@ function fallbackDecrypt(payload: Buffer): string {
 export function createResilientSecretProtector(primary: SecretProtector): SecretProtector {
   return {
     isAvailable: () => true,
-    protect: (cleartext) => {
-      if (primary.isAvailable()) return primary.protect(cleartext);
-      return fallbackEncrypt(cleartext);
-    },
+    protect: (cleartext) => fallbackEncrypt(cleartext),
     unprotect: (ciphertext) => {
       if (startsWith(ciphertext, fallbackPrefix)) return fallbackDecrypt(ciphertext);
-      if (primary.isAvailable()) return primary.unprotect(ciphertext);
-      throw new Error('Primary secure storage is unavailable for this protected secret.');
-    }
+      return primary.unprotect(ciphertext);
+    },
+    shouldReprotect: (ciphertext) => !startsWith(ciphertext, fallbackPrefix)
   };
 }
 
