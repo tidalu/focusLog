@@ -2,8 +2,9 @@ import { createHash, createPrivateKey, generateKeyPairSync, sign } from 'node:cr
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { safeStorage } from 'electron';
 import { ulid } from 'ulid';
+
+import type { SecretProtector } from '../security/protected-secret.js';
 
 export interface DeviceIdentity {
   readonly ownerId: string;
@@ -20,10 +21,14 @@ interface PersistedIdentity {
   privateKey: string;
 }
 
-function persistIdentity(filename: string, stored: PersistedIdentity): void {
+function persistIdentity(
+  filename: string,
+  stored: PersistedIdentity,
+  protector: SecretProtector
+): void {
   const temporary = `${filename}.${process.pid}.tmp`;
   mkdirSync(dirname(filename), { recursive: true });
-  writeFileSync(temporary, safeStorage.encryptString(JSON.stringify(stored)), { mode: 0o600 });
+  writeFileSync(temporary, protector.protect(JSON.stringify(stored)), { mode: 0o600 });
   renameSync(temporary, filename);
 }
 
@@ -31,14 +36,17 @@ function fingerprint(publicKey: string): string {
   return createHash('sha256').update(publicKey).digest('base64url');
 }
 
-/** Windows safeStorage protects the private key with the current OS user context. */
-export function loadOrCreateDeviceIdentity(filename: string): DeviceIdentity {
-  if (!safeStorage.isEncryptionAvailable())
+/** The supplied protector keeps the private key encrypted and bound to the local device context. */
+export function loadOrCreateDeviceIdentity(
+  filename: string,
+  protector: SecretProtector
+): DeviceIdentity {
+  if (!protector.isAvailable())
     throw new Error('Windows secure storage is unavailable; device identity cannot be created.');
   let stored: PersistedIdentity;
   if (existsSync(filename)) {
     try {
-      stored = JSON.parse(safeStorage.decryptString(readFileSync(filename))) as PersistedIdentity;
+      stored = JSON.parse(protector.unprotect(readFileSync(filename))) as PersistedIdentity;
       if (
         !stored.ownerId ||
         !stored.deviceId ||
@@ -61,7 +69,7 @@ export function loadOrCreateDeviceIdentity(filename: string): DeviceIdentity {
       publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
       privateKey: keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
     };
-    persistIdentity(filename, stored);
+    persistIdentity(filename, stored, protector);
   }
   return { ...stored, fingerprint: fingerprint(stored.publicKey) };
 }
@@ -69,21 +77,23 @@ export function loadOrCreateDeviceIdentity(filename: string): DeviceIdentity {
 export function rebindDeviceIdentityOwner(
   filename: string,
   identity: DeviceIdentity,
-  ownerId: string
+  ownerId: string,
+  protector: SecretProtector
 ): DeviceIdentity {
   const updated = { ...identity, ownerId };
-  persistIdentity(filename, updated);
+  persistIdentity(filename, updated, protector);
   return updated;
 }
 
 export function restoreDeviceIdentity(
   filename: string,
-  recovered: Omit<DeviceIdentity, 'fingerprint'>
+  recovered: Omit<DeviceIdentity, 'fingerprint'>,
+  protector: SecretProtector
 ): DeviceIdentity {
   const restored = { ...recovered, fingerprint: fingerprint(recovered.publicKey) };
   // Parsing the private key also rejects malformed or incompatible recovery material.
   createPrivateKey(restored.privateKey);
-  persistIdentity(filename, restored);
+  persistIdentity(filename, restored, protector);
   return restored;
 }
 
