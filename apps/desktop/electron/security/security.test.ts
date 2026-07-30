@@ -13,7 +13,12 @@ import {
 } from '../backup/encrypted-backup.js';
 import { openDesktopDatabase } from '../database/database.js';
 import { seedDesktopDatabase } from '../database/seed.js';
+import { loadOrCreateDeviceIdentity } from '../identity/device-identity.js';
 import { loadOrCreateProtectedSecret, type SecretProtector } from './protected-secret.js';
+import {
+  createResilientSecretProtector,
+  focusLogFallbackSecretPrefix
+} from './resilient-secret-protector.js';
 import { permanentlyDeleteLocalData } from './permanent-deletion.js';
 
 const directories: string[] = [];
@@ -78,6 +83,69 @@ describe('desktop encrypted persistence', () => {
 
     writeFileSync(filename, 'corrupt');
     expect(() => loadOrCreateProtectedSecret(filename, protector)).toThrow(/Refusing to replace/);
+  });
+
+  it('creates encrypted local secrets when Electron safeStorage is unavailable on first launch', () => {
+    const filename = join(temporaryDirectory(), 'database-key.bin');
+    const unavailablePrimary: SecretProtector = {
+      isAvailable: () => false,
+      protect: () => {
+        throw new Error('primary unavailable');
+      },
+      unprotect: () => {
+        throw new Error('primary unavailable');
+      }
+    };
+    const protector = createResilientSecretProtector(unavailablePrimary);
+
+    const first = loadOrCreateProtectedSecret(filename, protector);
+    const raw = readFileSync(filename);
+    const afterRestart = loadOrCreateProtectedSecret(filename, protector);
+
+    expect(afterRestart).toEqual(first);
+    expect(raw.toString('utf8')).toContain(focusLogFallbackSecretPrefix);
+    expect(raw.includes(first)).toBe(false);
+  });
+
+  it('refuses to replace an existing primary-protected secret when safeStorage becomes unavailable', () => {
+    const filename = join(temporaryDirectory(), 'database-key.bin');
+    writeFileSync(filename, Buffer.from('primary-protected-existing-secret'));
+    const unavailablePrimary: SecretProtector = {
+      isAvailable: () => false,
+      protect: () => {
+        throw new Error('primary unavailable');
+      },
+      unprotect: () => {
+        throw new Error('primary unavailable');
+      }
+    };
+
+    expect(() =>
+      loadOrCreateProtectedSecret(filename, createResilientSecretProtector(unavailablePrimary))
+    ).toThrow(/Refusing to replace/);
+    expect(readFileSync(filename).toString()).toBe('primary-protected-existing-secret');
+  });
+
+  it('creates and reloads a protected device identity through the local fallback', () => {
+    const filename = join(temporaryDirectory(), 'device-identity.bin');
+    const unavailablePrimary: SecretProtector = {
+      isAvailable: () => false,
+      protect: () => {
+        throw new Error('primary unavailable');
+      },
+      unprotect: () => {
+        throw new Error('primary unavailable');
+      }
+    };
+    const protector = createResilientSecretProtector(unavailablePrimary);
+
+    const first = loadOrCreateDeviceIdentity(filename, protector);
+    const raw = readFileSync(filename);
+    const afterRestart = loadOrCreateDeviceIdentity(filename, protector);
+
+    expect(afterRestart).toEqual(first);
+    expect(raw.toString('utf8')).toContain(focusLogFallbackSecretPrefix);
+    expect(raw.toString('utf8')).not.toContain(first.privateKey);
   });
 
   it('permanently deletes the encryption key before local database artifacts', () => {

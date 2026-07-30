@@ -493,7 +493,7 @@ void app
     const databaseKey = loadOrCreateProtectedSecret(databaseKeyPath, electronSecretProtector);
     const database = openDesktopDatabase(databasePath, databaseKey);
     desktopDatabase = database;
-    identity = loadOrCreateDeviceIdentity(identityPath);
+    identity = loadOrCreateDeviceIdentity(identityPath, electronSecretProtector);
     ownerId = identity.ownerId;
     deviceId = identity.deviceId;
     ensureLocalIdentity();
@@ -856,12 +856,21 @@ void app
         recoveryKey
       );
       if (result.recoveryIdentity?.platform === 'WINDOWS') {
-        identity = restoreDeviceIdentity(identityPath, result.recoveryIdentity);
+        identity = restoreDeviceIdentity(
+          identityPath,
+          result.recoveryIdentity,
+          electronSecretProtector
+        );
         ownerId = identity.ownerId;
         deviceId = identity.deviceId;
         ensureLocalIdentity();
       } else if (identity!.ownerId !== result.ownerId) {
-        identity = rebindDeviceIdentityOwner(identityPath, identity!, result.ownerId);
+        identity = rebindDeviceIdentityOwner(
+          identityPath,
+          identity!,
+          result.ownerId,
+          electronSecretProtector
+        );
         ownerId = result.ownerId;
         ensureLocalIdentity();
       }
