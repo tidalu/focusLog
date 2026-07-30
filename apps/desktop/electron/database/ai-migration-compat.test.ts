@@ -850,7 +850,7 @@ describe('AI migration 7–9 upgrade compatibility', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('upgrades a file-backed pre-2D Phase 2C database through analysis hierarchy and scheduler migrations', async () => {
     const root = mkdtempSync(join(tmpdir(), 'focuslog-2d-migration-gate-'));

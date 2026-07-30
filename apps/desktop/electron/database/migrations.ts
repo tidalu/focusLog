@@ -382,5 +382,10 @@ export const desktopMigrations: readonly SqliteMigration[] = [
       `CREATE TRIGGER log_sections_fts_update AFTER UPDATE OF body ON log_sections BEGIN INSERT INTO log_sections_fts(log_sections_fts, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO log_sections_fts(rowid, body) VALUES (new.rowid, new.body); END`,
       `INSERT INTO log_sections_fts(log_sections_fts) VALUES ('rebuild')`
     ]
+  },
+  {
+    version: 25,
+    name: 'repair_ai_platform_foundation_version_collision',
+    statements: []
   }
 ];

@@ -45,8 +45,9 @@ export function loadOrCreateDeviceIdentity(
     throw new Error('Windows secure storage is unavailable; device identity cannot be created.');
   let stored: PersistedIdentity;
   if (existsSync(filename)) {
+    const protectedIdentity = readFileSync(filename);
     try {
-      stored = JSON.parse(protector.unprotect(readFileSync(filename))) as PersistedIdentity;
+      stored = JSON.parse(protector.unprotect(protectedIdentity)) as PersistedIdentity;
       if (
         !stored.ownerId ||
         !stored.deviceId ||
@@ -55,6 +56,16 @@ export function loadOrCreateDeviceIdentity(
         fingerprint(stored.publicKey).length < 32
       )
         throw new Error('identity fields are incomplete');
+      if (protector.shouldReprotect?.(protectedIdentity)) {
+        try {
+          persistIdentity(filename, stored, protector);
+        } catch (error) {
+          console.warn(
+            'FocusLog could not rewrap the protected device identity; existing data remains intact.',
+            error
+          );
+        }
+      }
     } catch (error) {
       throw new Error(
         'Protected device identity exists but cannot be decrypted. Refusing to create a replacement identity.',

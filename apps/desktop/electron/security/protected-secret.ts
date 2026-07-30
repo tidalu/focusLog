@@ -13,6 +13,7 @@ export interface SecretProtector {
   isAvailable(): boolean;
   protect(cleartext: string): Buffer;
   unprotect(ciphertext: Buffer): string;
+  shouldReprotect?(ciphertext: Buffer): boolean;
 }
 
 function writePrivateFileAtomically(filename: string, content: Buffer): void {
@@ -31,9 +32,20 @@ export function loadOrCreateProtectedSecret(
     throw new Error('Windows secure credential storage is unavailable.');
 
   if (existsSync(filename)) {
+    const protectedSecret = readFileSync(filename);
     try {
-      const decoded = Buffer.from(protector.unprotect(readFileSync(filename)), 'base64url');
+      const decoded = Buffer.from(protector.unprotect(protectedSecret), 'base64url');
       if (decoded.length !== byteLength) throw new Error('invalid secret length');
+      if (protector.shouldReprotect?.(protectedSecret)) {
+        try {
+          writePrivateFileAtomically(filename, protector.protect(decoded.toString('base64url')));
+        } catch (error) {
+          console.warn(
+            'FocusLog could not rewrap a protected secret; existing data remains intact.',
+            error
+          );
+        }
+      }
       return decoded;
     } catch (error) {
       throw new Error(

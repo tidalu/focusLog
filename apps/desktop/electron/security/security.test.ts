@@ -107,7 +107,35 @@ describe('desktop encrypted persistence', () => {
     expect(raw.includes(first)).toBe(false);
   });
 
-  it('refuses to replace an existing primary-protected secret when safeStorage becomes unavailable', () => {
+  it('rewraps an existing primary-protected secret into the local fallback envelope', () => {
+    const filename = join(temporaryDirectory(), 'database-key.bin');
+    const secret = randomBytes(32);
+    writeFileSync(filename, Buffer.from(`primary:${secret.toString('base64url')}`));
+    const primaryProbeUnavailableButDecrypts: SecretProtector = {
+      isAvailable: () => false,
+      protect: () => {
+        throw new Error('primary unavailable');
+      },
+      unprotect: (value) => value.toString('utf8').replace(/^primary:/u, '')
+    };
+
+    const loaded = loadOrCreateProtectedSecret(
+      filename,
+      createResilientSecretProtector(primaryProbeUnavailableButDecrypts)
+    );
+    const rewrapped = readFileSync(filename);
+    const afterRestart = loadOrCreateProtectedSecret(
+      filename,
+      createResilientSecretProtector(primaryProbeUnavailableButDecrypts)
+    );
+
+    expect(loaded).toEqual(secret);
+    expect(afterRestart).toEqual(secret);
+    expect(rewrapped.toString('utf8')).toContain(focusLogFallbackSecretPrefix);
+    expect(rewrapped.toString('utf8')).not.toContain('primary:');
+  });
+
+  it('refuses to replace an existing primary-protected secret when it cannot be decrypted', () => {
     const filename = join(temporaryDirectory(), 'database-key.bin');
     writeFileSync(filename, Buffer.from('primary-protected-existing-secret'));
     const unavailablePrimary: SecretProtector = {
@@ -124,6 +152,41 @@ describe('desktop encrypted persistence', () => {
       loadOrCreateProtectedSecret(filename, createResilientSecretProtector(unavailablePrimary))
     ).toThrow(/Refusing to replace/);
     expect(readFileSync(filename).toString()).toBe('primary-protected-existing-secret');
+  });
+
+  it('rewraps an existing primary-protected device identity into the local fallback envelope', () => {
+    const filename = join(temporaryDirectory(), 'device-identity.bin');
+    const stored = {
+      ownerId: '01J00000000000000000000000',
+      deviceId: '01J00000000000000000000001',
+      ...generateKeyPairSync('ed25519')
+    };
+    const persisted = {
+      ownerId: stored.ownerId,
+      deviceId: stored.deviceId,
+      publicKey: stored.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      privateKey: stored.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    };
+    writeFileSync(filename, Buffer.from(`primary:${JSON.stringify(persisted)}`));
+    const primaryProbeUnavailableButDecrypts: SecretProtector = {
+      isAvailable: () => false,
+      protect: () => {
+        throw new Error('primary unavailable');
+      },
+      unprotect: (value) => value.toString('utf8').replace(/^primary:/u, '')
+    };
+
+    const identity = loadOrCreateDeviceIdentity(
+      filename,
+      createResilientSecretProtector(primaryProbeUnavailableButDecrypts)
+    );
+    const raw = readFileSync(filename);
+
+    expect(identity.ownerId).toBe(persisted.ownerId);
+    expect(identity.deviceId).toBe(persisted.deviceId);
+    expect(raw.toString('utf8')).toContain(focusLogFallbackSecretPrefix);
+    expect(raw.toString('utf8')).not.toContain('primary:');
+    expect(raw.toString('utf8')).not.toContain(persisted.privateKey);
   });
 
   it('creates and reloads a protected device identity through the local fallback', () => {

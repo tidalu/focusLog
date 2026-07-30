@@ -18,6 +18,38 @@ export const latestDesktopMigrationVersion = Math.max(
   ...desktopMigrations.map((migration) => migration.version)
 );
 
+function tableExists(database: DesktopDatabase, name: string): boolean {
+  return (
+    database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !=
+    null
+  );
+}
+
+function repairAiFoundationVersionCollision(database: DesktopDatabase): void {
+  const aiFoundation = desktopMigrations.find(
+    (migration) => migration.version === 6 && migration.name === 'ai_platform_foundation'
+  );
+  if (!aiFoundation) throw new Error('AI platform foundation migration is unavailable.');
+
+  const row = database.prepare('SELECT name FROM schema_migrations WHERE version = 6').get() as
+    { name: string } | undefined;
+  if (row?.name !== 'multi_section_category_taxonomy' || tableExists(database, 'ai_jobs')) return;
+
+  const migrationRecorded = database.prepare('SELECT 1 FROM schema_migrations WHERE version = ?');
+  const repairAlreadyRecorded = migrationRecorded.get(25) != null;
+  if (repairAlreadyRecorded) return;
+
+  const recordMigration = database.prepare(
+    'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
+  );
+  database.transaction(() => {
+    for (const statement of aiFoundation.statements) database.exec(statement);
+    if (migrationRecorded.get(24) == null)
+      recordMigration.run(24, 'multi_section_category_taxonomy', now());
+    recordMigration.run(25, 'repair_ai_platform_foundation_version_collision', now());
+  })();
+}
+
 export function migrateDesktopDatabase(
   database: DesktopDatabase,
   options: DesktopMigrationOptions = {}
@@ -28,7 +60,7 @@ export function migrateDesktopDatabase(
     'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)'
   );
 
-  const rows = database.prepare('SELECT version FROM schema_migrations').all() as {
+  let rows = database.prepare('SELECT version FROM schema_migrations').all() as {
     version: number;
   }[];
   const futureVersion = rows.find((row) => row.version > latestDesktopMigrationVersion);
@@ -36,6 +68,10 @@ export function migrateDesktopDatabase(
     throw new Error(
       `This FocusLog database uses schema version ${futureVersion.version}, which is newer than this application supports. Update FocusLog before opening it.`
     );
+  repairAiFoundationVersionCollision(database);
+  rows = database.prepare('SELECT version FROM schema_migrations').all() as {
+    version: number;
+  }[];
   const applied = new Set<number>(rows.map((row) => row.version));
   const recordMigration = database.prepare(
     'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
