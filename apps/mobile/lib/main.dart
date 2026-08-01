@@ -114,7 +114,7 @@ class FocusLogApp extends StatelessWidget {
                 ColorScheme.fromSeed(
                     seedColor: FocusLogMobileDesign.seed,
                     brightness: Brightness.dark)),
-            themeMode: ThemeMode.system,
+            themeMode: ThemeMode.dark,
             home: FocusLogHome(
                 repository: repository,
                 aiRepository: aiRepository,
@@ -320,8 +320,13 @@ class _FocusLogHomeState extends State<FocusLogHome>
           syncStatus: _syncStatus,
           onSync: _sync,
           onPair: _openPairing),
+      _MobileMore(
+        syncStatus: _syncStatus,
+        onOpen: (value) => setState(() => _index = value),
+        onPair: _openPairing,
+      ),
     ];
-    const destinations = [
+    const railDestinations = [
       NavigationDestination(icon: Icon(Icons.timer_outlined), label: 'Focus'),
       NavigationDestination(icon: Icon(Icons.history), label: 'History'),
       NavigationDestination(
@@ -339,6 +344,17 @@ class _FocusLogHomeState extends State<FocusLogHome>
       NavigationDestination(
           icon: Icon(Icons.settings_outlined), label: 'Settings'),
     ];
+    const mobileDestinations = [
+      NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Today'),
+      NavigationDestination(
+          icon: Icon(Icons.timeline_outlined), label: 'Timeline'),
+      NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined), label: 'AI'),
+      NavigationDestination(
+          icon: Icon(Icons.insights_outlined), label: 'Insights'),
+      NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+    ];
+    const mobileIndexes = [0, 1, 3, 2, 9];
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 760;
       final content = FocusLogGradientScaffold(
@@ -375,10 +391,7 @@ class _FocusLogHomeState extends State<FocusLogHome>
             ? Row(children: [
                 DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerLowest
-                        .withAlpha((255 * 0.92).round()),
+                    color: Theme.of(context).colorScheme.surface,
                     border: Border(
                       right: BorderSide(
                         color: Theme.of(context).colorScheme.outlineVariant,
@@ -387,7 +400,8 @@ class _FocusLogHomeState extends State<FocusLogHome>
                   ),
                   child: NavigationRail(
                     extended: constraints.maxWidth >= 1050,
-                    selectedIndex: _index,
+                    selectedIndex:
+                        _index >= railDestinations.length ? 0 : _index,
                     leading: const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: _BrandMark(),
@@ -395,7 +409,7 @@ class _FocusLogHomeState extends State<FocusLogHome>
                     onDestinationSelected: (value) =>
                         setState(() => _index = value),
                     destinations: [
-                      for (final item in destinations)
+                      for (final item in railDestinations)
                         NavigationRailDestination(
                           icon: item.icon,
                           label: Text(item.label),
@@ -413,10 +427,12 @@ class _FocusLogHomeState extends State<FocusLogHome>
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
                   child: NavigationBar(
-                    selectedIndex: _index,
+                    selectedIndex: mobileIndexes.contains(_index)
+                        ? mobileIndexes.indexOf(_index)
+                        : mobileIndexes.length - 1,
                     onDestinationSelected: (value) =>
-                        setState(() => _index = value),
-                    destinations: destinations,
+                        setState(() => _index = mobileIndexes[value]),
+                    destinations: mobileDestinations,
                   ),
                 ),
               ),
@@ -436,6 +452,149 @@ class _FocusLogHomeState extends State<FocusLogHome>
   }
 }
 
+class _MobileMore extends StatelessWidget {
+  const _MobileMore({
+    required this.syncStatus,
+    required this.onOpen,
+    required this.onPair,
+  });
+
+  final String syncStatus;
+  final ValueChanged<int> onOpen;
+  final VoidCallback onPair;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 112),
+        children: [
+          const FocusLogPageHeader(
+            eyebrow: 'More',
+            title: 'FocusLog',
+            description:
+                'Memory, widgets, settings, safety, and trusted-device controls live here.',
+          ),
+          FocusLogCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Column(
+              children: [
+                _MoreRow(
+                  icon: Icons.hub_outlined,
+                  title: 'AI memory',
+                  subtitle: 'Search, facts, graph, and Q&A',
+                  onTap: () => onOpen(4),
+                ),
+                _MoreRow(
+                  icon: Icons.science_outlined,
+                  title: 'AI Playground',
+                  subtitle: 'Read-only mobile projection',
+                  onTap: () => onOpen(5),
+                ),
+                _MoreRow(
+                  icon: Icons.health_and_safety_outlined,
+                  title: 'AI safety',
+                  subtitle: 'Security resources and diagnostics',
+                  onTap: () => onOpen(6),
+                ),
+                _MoreRow(
+                  icon: Icons.calendar_month_outlined,
+                  title: 'Calendar',
+                  subtitle: 'Year heatmap and day detail',
+                  onTap: () => onOpen(7),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          FocusLogCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Column(
+              children: [
+                _MoreRow(
+                  icon: Icons.settings_outlined,
+                  title: 'Settings',
+                  subtitle: 'Rhythm, backup, privacy, and export',
+                  onTap: () => onOpen(8),
+                ),
+                _MoreRow(
+                  icon: Icons.devices_other_outlined,
+                  title: 'Pair trusted device',
+                  subtitle: 'Approve a mobile device from desktop',
+                  onTap: onPair,
+                ),
+                _MoreRow(
+                  icon: Icons.sync_outlined,
+                  title: 'Synchronization',
+                  subtitle: syncStatus,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+}
+
+class _MoreRow extends StatelessWidget {
+  const _MoreRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: FocusLogMobileDesign.cardAlt(context),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: FocusLogMobileDesign.activeAccent(context),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontSize: 13.5)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: FocusLogMobileDesign.muted(context))),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right,
+                    color: FocusLogMobileDesign.muted(context)),
+            ],
+          ),
+        ),
+      );
+}
+
 class _BrandMark extends StatelessWidget {
   const _BrandMark();
 
@@ -446,15 +605,8 @@ class _BrandMark extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Theme.of(context).colorScheme.primary,
-                FocusLogMobileDesign.mint,
-              ],
-            ),
-            borderRadius: BorderRadius.circular(13),
+            color: FocusLogMobileDesign.activeAccent(context),
+            borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
                 color: Theme.of(context)
@@ -467,7 +619,10 @@ class _BrandMark extends StatelessWidget {
             ],
           ),
           child: Icon(Icons.bar_chart_rounded,
-              size: 20, color: Theme.of(context).colorScheme.onPrimary),
+              size: 20,
+              color: FocusLogMobileDesign.isDark(context)
+                  ? FocusLogMobileDesign.darkBg
+                  : Colors.white),
         ),
         const SizedBox(width: 10),
         Text('FocusLog',

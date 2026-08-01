@@ -3,213 +3,237 @@ import 'package:flutter/material.dart';
 class FocusLogMobileDesign {
   const FocusLogMobileDesign._();
 
-  static const seed = Color(0xff6b5cf6);
-  static const mint = Color(0xff43d8c7);
-  static const ink = Color(0xff15151d);
-  static const paper = Color(0xfffffefa);
-  static const wash = Color(0xfff4f2ff);
+  static const seed = Color(0xffd6ff4e);
+  static const accent = Color(0xffd6ff4e);
+  static const coral = Color(0xffff7a5c);
+  static const blue = Color(0xff6fa8ff);
+  static const purple = Color(0xffb98cff);
+  static const darkBg = Color(0xff0b0b0f);
+  static const darkCard = Color(0xff151519);
+  static const darkCard2 = Color(0xff1c1c22);
+  static const darkCard3 = Color(0xff202027);
+  static const darkLine = Color(0xff26262e);
+  static const darkInk = Color(0xfff3f2ef);
+  static const darkInkSoft = Color(0xff8c8b96);
+  static const lightBg = Color(0xfff5f2ea);
+  static const lightCard = Color(0xffffffff);
+  static const lightCard2 = Color(0xfff1eee4);
+  static const lightLine = Color(0xffe3dfd0);
+  static const lightInk = Color(0xff1c1a15);
+  static const lightAccent = Color(0xff4b7f3c);
+
+  static bool isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  static Color card(BuildContext context) =>
+      isDark(context) ? darkCard : lightCard;
+
+  static Color cardAlt(BuildContext context) =>
+      isDark(context) ? darkCard2 : lightCard2;
+
+  static Color line(BuildContext context) =>
+      isDark(context) ? darkLine : lightLine;
+
+  static Color muted(BuildContext context) =>
+      isDark(context) ? darkInkSoft : const Color(0xff726f63);
+
+  static Color activeAccent(BuildContext context) =>
+      isDark(context) ? accent : lightAccent;
 
   static ThemeData theme(ColorScheme base) {
-    final colors = base.copyWith(
-      primary: seed,
-      secondary: mint,
-      tertiary: const Color(0xffffc75a),
-      surface: base.brightness == Brightness.dark
-          ? const Color(0xff11121a)
-          : const Color(0xfff5f5fb),
-      surfaceContainerLowest:
-          base.brightness == Brightness.dark ? const Color(0xff151620) : paper,
-      surfaceContainerLow: base.brightness == Brightness.dark
-          ? const Color(0xff1b1c27)
-          : const Color(0xfffffefa),
-      surfaceContainer: base.brightness == Brightness.dark
-          ? const Color(0xff20212d)
-          : const Color(0xfffaf9ff),
-      surfaceContainerHigh: base.brightness == Brightness.dark
-          ? const Color(0xff262838)
-          : const Color(0xfff1effa),
-      outlineVariant: base.brightness == Brightness.dark
-          ? const Color(0xff303241)
-          : const Color(0xffe7e5f0),
+    final dark = base.brightness == Brightness.dark;
+    final primary = dark ? accent : lightAccent;
+    final colors = ColorScheme.fromSeed(
+      seedColor: primary,
+      brightness: base.brightness,
+    ).copyWith(
+      primary: primary,
+      secondary: dark ? blue : const Color(0xff3e6fd1),
+      tertiary: dark ? purple : const Color(0xff7457c4),
+      error: dark ? coral : const Color(0xffe0654a),
+      surface: dark ? darkBg : lightBg,
+      onPrimary: dark ? darkBg : Colors.white,
+      onSurface: dark ? darkInk : lightInk,
+      onSurfaceVariant: dark ? darkInkSoft : const Color(0xff726f63),
+      outline: dark ? darkLine : lightLine,
+      outlineVariant: dark ? const Color(0xff1e1e25) : const Color(0xffece8dc),
     );
 
     final textTheme = Typography.material2021(
       platform: TargetPlatform.android,
       colorScheme: colors,
     ).black.apply(
-          fontFamily: 'Roboto',
+          fontFamily: 'Public Sans',
           bodyColor: colors.onSurface,
           displayColor: colors.onSurface,
         );
 
     return ThemeData(
       colorScheme: colors,
+      brightness: base.brightness,
       useMaterial3: true,
       scaffoldBackgroundColor: colors.surface,
+      canvasColor: colors.surface,
       textTheme: textTheme.copyWith(
         displaySmall: textTheme.displaySmall?.copyWith(
-          fontWeight: FontWeight.w900,
-          letterSpacing: -1.7,
-          height: 0.98,
-        ),
-        headlineMedium: textTheme.headlineMedium?.copyWith(
-          fontWeight: FontWeight.w900,
-          letterSpacing: -1.3,
+          fontFamily: 'Fraunces',
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.8,
           height: 1.02,
         ),
-        headlineSmall: textTheme.headlineSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.9,
+        headlineMedium: textTheme.headlineMedium?.copyWith(
+          fontFamily: 'Fraunces',
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.55,
           height: 1.05,
+        ),
+        headlineSmall: textTheme.headlineSmall?.copyWith(
+          fontFamily: 'Fraunces',
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.35,
+          height: 1.08,
         ),
         titleLarge: textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w800,
-          letterSpacing: -0.45,
+          letterSpacing: -0.2,
         ),
         titleMedium: textTheme.titleMedium?.copyWith(
           fontWeight: FontWeight.w700,
-          letterSpacing: -0.25,
+        ),
+        labelSmall: textTheme.labelSmall?.copyWith(
+          fontFamily: 'IBM Plex Mono',
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w500,
         ),
         bodyMedium: textTheme.bodyMedium?.copyWith(
           color: colors.onSurfaceVariant,
-          height: 1.45,
+          height: 1.48,
         ),
       ),
       appBarTheme: AppBarTheme(
         elevation: 0,
         centerTitle: false,
         scrolledUnderElevation: 0,
-        backgroundColor: Colors.transparent,
+        backgroundColor: colors.surface,
         foregroundColor: colors.onSurface,
         surfaceTintColor: Colors.transparent,
       ),
       cardTheme: CardThemeData(
         elevation: 0,
         margin: EdgeInsets.zero,
-        color: colors.surfaceContainerLowest,
+        color: dark ? darkCard : lightCard,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-          side: BorderSide(color: colors.outlineVariant),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: colors.outline),
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: colors.surfaceContainer,
-        selectedColor: colors.primaryContainer,
-        side: BorderSide(color: colors.outlineVariant),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        backgroundColor: dark ? darkCard2 : lightCard2,
+        selectedColor: primary,
+        side: BorderSide(color: colors.outline),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         labelStyle: TextStyle(
-          color: colors.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
+          color: dark ? darkInkSoft : const Color(0xff726f63),
+          fontWeight: FontWeight.w700,
           fontSize: 12,
         ),
       ),
       dividerTheme: DividerThemeData(
         color: colors.outlineVariant,
-        space: 32,
+        space: 28,
         thickness: 1,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colors.surfaceContainerLowest,
+        fillColor: dark ? darkCard2 : lightCard,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: colors.outlineVariant),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colors.outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: colors.outlineVariant),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: colors.outline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: colors.primary, width: 1.6),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: primary, width: 1.4),
         ),
+        hintStyle: TextStyle(color: colors.onSurfaceVariant),
+        labelStyle: TextStyle(color: colors.onSurfaceVariant),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(0, 52),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          backgroundColor: primary,
+          foregroundColor: dark ? darkBg : Colors.white,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(0, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          side: BorderSide(color: colors.outlineVariant),
+          minimumSize: const Size(0, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          side: BorderSide(color: colors.outline),
+          foregroundColor: colors.onSurface,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
+          foregroundColor: primary,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-          backgroundColor: colors.surfaceContainerLowest,
-          foregroundColor: colors.onSurfaceVariant,
+          backgroundColor: dark ? darkCard2 : lightCard,
+          foregroundColor: colors.onSurface,
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
-      ),
-      listTileTheme: ListTileThemeData(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        iconColor: colors.primary,
-        titleTextStyle: textTheme.titleMedium?.copyWith(
-          color: colors.onSurface,
-          fontWeight: FontWeight.w700,
-        ),
-        subtitleTextStyle: textTheme.bodySmall?.copyWith(
-          color: colors.onSurfaceVariant,
-          height: 1.4,
-        ),
-      ),
-      snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        elevation: 0,
-        backgroundColor: colors.inverseSurface,
-        contentTextStyle: TextStyle(
-          color: colors.onInverseSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         elevation: 0,
-        height: 76,
+        height: 64,
         backgroundColor:
-            colors.surfaceContainerLowest.withAlpha((255 * 0.94).round()),
-        indicatorColor: colors.primaryContainer,
+            (dark ? darkCard : lightCard).withAlpha((255 * 0.90).round()),
+        indicatorColor: primary,
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
-            fontSize: 11,
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w800
-                : FontWeight.w600,
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
             color: states.contains(WidgetState.selected)
-                ? colors.primary
+                ? (dark ? darkBg : Colors.white)
                 : colors.onSurfaceVariant,
+          ),
+        ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? (dark ? darkBg : Colors.white)
+                : colors.onSurfaceVariant,
+            size: 21,
           ),
         ),
       ),
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor:
-            colors.surfaceContainerLowest.withAlpha((255 * 0.92).round()),
+        backgroundColor: dark ? darkBg : lightBg,
         elevation: 0,
-        indicatorColor: colors.primaryContainer,
-        selectedIconTheme: IconThemeData(color: colors.primary),
+        indicatorColor: primary,
+        selectedIconTheme: IconThemeData(color: dark ? darkBg : Colors.white),
         unselectedIconTheme: IconThemeData(color: colors.onSurfaceVariant),
         selectedLabelTextStyle: TextStyle(
-          color: colors.primary,
+          color: colors.onSurface,
           fontWeight: FontWeight.w800,
         ),
         unselectedLabelTextStyle: TextStyle(
@@ -221,40 +245,53 @@ class FocusLogMobileDesign {
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          color: colors.primaryContainer,
+          borderRadius: BorderRadius.circular(18),
+          color: primary,
         ),
-        labelColor: colors.primary,
+        labelColor: dark ? darkBg : Colors.white,
         unselectedLabelColor: colors.onSurfaceVariant,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+        labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
-              ? colors.onPrimary
-              : colors.surfaceContainerLowest,
+              ? primary
+              : colors.onSurfaceVariant,
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
-              ? colors.primary
-              : colors.surfaceContainerHigh,
+              ? primary.withAlpha((255 * 0.34).round())
+              : colors.outline,
         ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        elevation: 0,
+        backgroundColor: dark ? darkCard2 : lightInk,
+        contentTextStyle: TextStyle(
+          color: dark ? darkInk : lightCard,
+          fontWeight: FontWeight.w600,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
     );
   }
 
   static BoxDecoration backdrop(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final dark = isDark(context);
     return BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          colors.surfaceContainerLowest,
-          colors.surface,
-          Color.lerp(colors.primaryContainer, colors.surface, 0.74)!,
-        ],
-      ),
+      color: dark ? darkBg : lightBg,
+      gradient: dark
+          ? const RadialGradient(
+              center: Alignment(-0.8, -0.9),
+              radius: 1.2,
+              colors: [Color(0x223d4d16), darkBg],
+            )
+          : const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [lightBg, Color(0xffeee9dc)],
+            ),
     );
   }
 }
@@ -289,7 +326,7 @@ class FocusLogPageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+      padding: const EdgeInsets.fromLTRB(2, 8, 2, 18),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -297,15 +334,34 @@ class FocusLogPageHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  eyebrow.toUpperCase(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colors.primary,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.5,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: FocusLogMobileDesign.activeAccent(context),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: FocusLogMobileDesign.activeAccent(context)
+                                .withAlpha((255 * 0.55).round()),
+                            blurRadius: 8,
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      eyebrow.toUpperCase(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 Text(title, style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 6),
                 Text(description),
@@ -326,7 +382,7 @@ class FocusLogCard extends StatelessWidget {
   const FocusLogCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(18),
+    this.padding = const EdgeInsets.all(16),
     this.accent = false,
   });
 
@@ -336,40 +392,29 @@ class FocusLogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final dark = FocusLogMobileDesign.isDark(context);
+    final accentColor = FocusLogMobileDesign.activeAccent(context);
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(20),
+        color: accent
+            ? accentColor.withAlpha((255 * (dark ? 0.10 : 0.12)).round())
+            : FocusLogMobileDesign.card(context),
         gradient: accent
             ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  colors.primary,
-                  Color.lerp(colors.primary, FocusLogMobileDesign.mint, 0.34)!,
+                  accentColor.withAlpha((255 * (dark ? 0.12 : 0.16)).round()),
+                  FocusLogMobileDesign.card(context),
                 ],
               )
-            : LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  colors.surfaceContainerLowest,
-                  colors.surfaceContainerLow,
-                ],
-              ),
+            : null,
         border: Border.all(
           color: accent
-              ? Colors.white.withAlpha((255 * 0.16).round())
-              : colors.outlineVariant,
+              ? accentColor.withAlpha((255 * 0.28).round())
+              : FocusLogMobileDesign.line(context),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: colors.shadow
-                .withAlpha((255 * (accent ? 0.18 : 0.08)).round()),
-            blurRadius: accent ? 34 : 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
       ),
       child: Padding(padding: padding, child: child),
     );
@@ -384,26 +429,27 @@ class FocusLogStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final accentColor = FocusLogMobileDesign.activeAccent(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: colors.surfaceContainer,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colors.outlineVariant),
+        color: FocusLogMobileDesign.cardAlt(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: FocusLogMobileDesign.line(context)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 15, color: colors.primary),
+            Icon(icon, size: 14, color: accentColor),
             const SizedBox(width: 6),
           ],
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
+                  color: FocusLogMobileDesign.muted(context),
                   fontWeight: FontWeight.w700,
+                  fontSize: 11,
                 ),
           ),
         ],

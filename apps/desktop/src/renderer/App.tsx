@@ -164,7 +164,7 @@ export function App(): React.JSX.Element {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('focuslog-theme');
     if (stored === 'light' || stored === 'dark') return stored;
-    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return 'dark';
   });
   const [startup, setStartup] = useState(false);
   const [closeBehavior, setCloseBehavior] = useState<'tray' | 'exit'>('tray');
