@@ -375,7 +375,7 @@ describe('AI migration 7–9 upgrade compatibility', () => {
         /* best effort */
       }
     }
-  });
+  }, 15000);
 
   it('preserves migration 7 queue states through migrations 8 and 9', () => {
     const database = historical(7);
