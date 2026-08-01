@@ -670,8 +670,8 @@ class _AnalysisResultTile extends StatelessWidget {
           ),
           title: Text('${_title(item.level)} ${item.periodKey}'),
           subtitle: Text(
-            '${item.summary}\nVersion ${item.resultVersion}; ${item.staleState}; ${item.costMicros} micro-usd',
-            maxLines: 3,
+            '${item.summary}\nDesktop-owned execution: synchronized safe result\nVersion ${item.resultVersion}; ${item.staleState}; ${item.costMicros} micro-usd',
+            maxLines: 4,
             overflow: TextOverflow.ellipsis,
           ),
           trailing: const Icon(Icons.chevron_right),
@@ -811,6 +811,10 @@ class _MetadataCard extends StatelessWidget {
             _Chip(label: 'Output tokens: ${usage['outputTokens'] ?? 'n/a'}'),
             _Chip(label: 'Cost: ${detail.item.costMicros} micro-usd'),
             _Chip(label: 'State: ${detail.item.staleState}'),
+            const _Chip(
+              label:
+                  'Desktop-owned execution: mobile shows synchronized safe results only',
+            ),
           ],
         ),
       ),
