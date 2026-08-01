@@ -1064,12 +1064,15 @@ class _DashboardState extends State<_Dashboard> {
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 10),
                 FocusLogCard(
-                  child: ListTile(
-                    leading: const Icon(Icons.edit_note),
-                    title: const Text('Log what you are doing'),
-                    subtitle: const Text('Saved locally and synced later'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: _quickLog,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: ListTile(
+                      leading: const Icon(Icons.edit_note),
+                      title: const Text('Log what you are doing'),
+                      subtitle: const Text('Saved locally and synced later'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: _quickLog,
+                    ),
                   ),
                 ),
               ],

@@ -811,6 +811,10 @@ class _MetadataCard extends StatelessWidget {
             _Chip(label: 'Output tokens: ${usage['outputTokens'] ?? 'n/a'}'),
             _Chip(label: 'Cost: ${detail.item.costMicros} micro-usd'),
             _Chip(label: 'State: ${detail.item.staleState}'),
+            const _Chip(
+              label:
+                  'Desktop-owned execution: mobile shows synchronized safe results only',
+            ),
           ],
         ),
       ),
